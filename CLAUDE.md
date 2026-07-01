@@ -9,10 +9,17 @@ application source exists yet beyond scaffolding.
 
 ## Status
 
-Fresh repository. Tracked files are `README.md` and `.gitignore` only. A Python
-3.14 virtualenv (`.venv/`) and a PyCharm project (`.idea/`) exist locally but are
-untracked/ignored. There is no source package, tests, build config, or
-dependency manifest yet.
+Fresh repository. Tracked files: `README.md`, `.gitignore`, `CLAUDE.md`, and
+`ollama-dev.sample.json`. A Python 3.14 virtualenv (`.venv/`) and a PyCharm
+project (`.idea/`) exist locally but are untracked/ignored. There is no source
+package, tests, build config, or dependency manifest yet.
+
+## Config
+
+`ollama-dev.sample.json` is a sample config: a list of Ollama `instances`, each
+with a `url` (e.g. `http://localhost:11434`) and a `model`. Implies the harness
+targets one or more Ollama backends, possibly load-balanced across hosts. Copy
+to a real (gitignored) config when implementing.
 
 ## Environment
 
