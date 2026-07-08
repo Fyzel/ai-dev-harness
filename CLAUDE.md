@@ -22,9 +22,8 @@ to a real (gitignored) config when implementing.
 
 ## Environment
 
-- Python 3.14 (CPython), managed via a local `.venv/`.
-- Activate: `.venv\Scripts\Activate.ps1` (PowerShell) or `source .venv/Scripts/activate` (bash).
-- Platform: Windows. Shell is PowerShell (primary); a POSIX Bash tool is also available.
+- Recommended: use the VS Code Dev Container in `.devcontainer/` (Linux, Node 20 base).
+- Local OS/IDE setup is developer-specific; keep `.venv/` and `.idea/` untracked via `.gitignore`.
 
 ## Conventions
 
