@@ -1,0 +1,7 @@
+# Shell scripts must use LF even on Windows checkouts — they run inside the Linux
+# dev container, and CRLF breaks the shebang / `set -euo pipefail`.
+*.sh text eol=lf
+.devcontainer/init-firewall.sh text eol=lf
+
+# Extensionless scripts in bin/ also run under Linux — keep LF.
+bin/* text eol=lf
