@@ -107,6 +107,10 @@ if ! echo "$gh_ranges" | jq -e '.web and .api and .git' >/dev/null; then
 fi
 
 echo "Processing GitHub IPs..."
+# GitHub's /meta includes IPv6 CIDRs (e.g. 2620:.../44). This allowlist is
+# IPv4-only (ipset hash:net + default-deny IPv6 above), so drop any range that
+# isn't a bare IPv4 CIDR BEFORE aggregating — otherwise the validation below
+# rejects the v6 entries and exits, blocking devcontainer startup.
 while read -r cidr; do
     if [[ ! "$cidr" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
         echo "ERROR: Invalid CIDR range from GitHub meta: $cidr"
@@ -114,7 +118,7 @@ while read -r cidr; do
     fi
     echo "Adding GitHub range $cidr"
     ipset add allowed-domains "$cidr" -exist
-done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
+done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$' | aggregate -q)
 
 # Resolve and add other allowed domains.
 #
@@ -164,7 +168,10 @@ done
 # enabling lateral movement / an egress side-channel. Scoping to the single
 # gateway /32 keeps host reachability (e.g. the VS Code server) while denying
 # neighbors.
-HOST_IP=$(ip route | grep default | cut -d" " -f3)
+# Parse the gateway from `ip -4 route` with awk (grab the token after "via"),
+# not `cut -d" " -f3` — route output has variable spacing, so a fixed field
+# index can land on an empty field and mis-detect (or fail to detect) the host.
+HOST_IP=$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "via") print $(i + 1)}' | head -n1)
 if [ -z "$HOST_IP" ]; then
     echo "ERROR: Failed to detect host gateway IP"
     exit 1
