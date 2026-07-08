@@ -39,7 +39,8 @@ if command -v ip6tables >/dev/null 2>&1; then
     ip6tables -A OUTPUT -o lo -j ACCEPT
     echo "IPv6 egress locked down (default-deny, loopback only)"
 else
-    echo "WARNING: ip6tables not found; IPv6 egress NOT restricted"
+    echo "ERROR: ip6tables not found; refusing to start with unrestricted IPv6 egress" >&2
+    exit 1
 fi
 
 # 4. Enforce IPv4 default-deny FIRST, before any network I/O.
