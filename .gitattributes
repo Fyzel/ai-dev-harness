@@ -5,3 +5,7 @@
 
 # Extensionless scripts in bin/ also run under Linux — keep LF.
 bin/* text eol=lf
+
+# Dockerfiles are parsed in the Linux build context; CRLF breaks `\` line
+# continuations. Covers "Dockerfile" and "*.Dockerfile".
+*Dockerfile text eol=lf
