@@ -1,0 +1,179 @@
+#!/usr/bin/env sh
+# bin/build-image
+# Build (and optionally push) the devcontainer Docker image from
+# .devcontainer/Dockerfile to the GitHub Container Registry (ghcr.io).
+#
+# Tags produced:
+#   <registry>/<owner>/<name>:<version>   version = git describe / short sha
+#   <registry>/<owner>/<name>:latest      skipped on a dirty tree (see below)
+
+set -eu
+
+# Defaults
+REGISTRY="ghcr.io"
+OWNER="fyzel"                 # GHCR namespace (lowercase GitHub user/org)
+IMAGE_NAME="ai-dev-harness"
+TZ_ARG="${TZ:-America/Edmonton}"
+CLAUDE_CODE_VERSION="latest"
+GIT_DELTA_VERSION="0.18.2"
+NO_CACHE=""
+DO_PUSH=""
+NO_LOGIN=""                  # skip gh auto-login (CI logs in itself)
+VERSION=""                   # overridable via --version
+
+usage() {
+  cat <<'EOF'
+Usage: bin/build-image [options]
+
+Build the devcontainer image and tag it for ghcr.io. With --push, log in
+via the gh CLI and push both the versioned tag and :latest.
+
+Options:
+      --registry HOST       Container registry (default: ghcr.io)
+      --owner NAME          Registry namespace (default: fyzel)
+      --name NAME           Image name (default: ai-dev-harness)
+      --version VER         Version tag (default: git describe / short sha)
+      --push                Push tags to the registry after building
+      --no-login            Skip gh auto-login (assume already docker-logged-in)
+      --tz ZONE             TZ build arg (default: $TZ or America/Edmonton)
+      --claude-version VER  CLAUDE_CODE_VERSION build arg (default: latest)
+      --delta-version VER   GIT_DELTA_VERSION build arg (default: 0.18.2)
+      --no-cache            Build without using Docker layer cache
+  -h, --help                Show this help
+
+Examples:
+  bin/build-image                       # build local tags only
+  bin/build-image --push                # build + push versioned tag and :latest
+  bin/build-image --version v1.2.3 --push
+EOF
+}
+
+# Parse arguments
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --registry)
+      [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
+      REGISTRY="$2"; shift 2 ;;
+    --owner)
+      [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
+      OWNER="$2"; shift 2 ;;
+    --name)
+      [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
+      IMAGE_NAME="$2"; shift 2 ;;
+    --version)
+      [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
+      VERSION="$2"; shift 2 ;;
+    --push)
+      DO_PUSH="1"; shift ;;
+    --no-login)
+      NO_LOGIN="1"; shift ;;
+    --tz)
+      [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
+      TZ_ARG="$2"; shift 2 ;;
+    --claude-version)
+      [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
+      CLAUDE_CODE_VERSION="$2"; shift 2 ;;
+    --delta-version)
+      [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
+      GIT_DELTA_VERSION="$2"; shift 2 ;;
+    --no-cache)
+      NO_CACHE="--no-cache"; shift ;;
+    -h|--help)
+      usage; exit 0 ;;
+    *)
+      echo "Error: unknown option '$1'." >&2
+      usage >&2
+      exit 1 ;;
+  esac
+done
+
+# Verify required tools
+if ! command -v docker > /dev/null 2>&1; then
+  echo "Error: docker not installed or not on PATH." >&2
+  exit 1
+fi
+
+if ! docker info > /dev/null 2>&1; then
+  echo "Error: docker daemon not reachable. Is Docker running?" >&2
+  exit 1
+fi
+
+# Resolve paths relative to repo root
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+BUILD_CONTEXT="$PROJECT_ROOT/.devcontainer"
+DOCKERFILE="$BUILD_CONTEXT/Dockerfile"
+
+if [ ! -f "$DOCKERFILE" ]; then
+  echo "Error: Dockerfile not found at $DOCKERFILE" >&2
+  exit 1
+fi
+
+# GHCR requires a lowercase namespace/name.
+OWNER=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
+IMAGE_NAME=$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')
+
+# Derive version tag from git if not supplied.
+DIRTY=""
+if [ -z "$VERSION" ]; then
+  if VERSION=$(git -C "$PROJECT_ROOT" describe --tags --always --dirty 2>/dev/null); then
+    :
+  else
+    VERSION=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "dev")
+  fi
+fi
+case "$VERSION" in
+  *-dirty) DIRTY="1" ;;
+esac
+
+IMAGE_BASE="$REGISTRY/$OWNER/$IMAGE_NAME"
+IMAGE_VERSIONED="$IMAGE_BASE:$VERSION"
+IMAGE_LATEST="$IMAGE_BASE:latest"
+
+echo "Building $IMAGE_VERSIONED"
+echo "  context:        $BUILD_CONTEXT"
+echo "  also tags:      $IMAGE_LATEST"
+echo "  TZ:             $TZ_ARG"
+echo "  Claude Code:    $CLAUDE_CODE_VERSION"
+echo "  git-delta:      $GIT_DELTA_VERSION"
+[ -n "$NO_CACHE" ] && echo "  cache:          disabled"
+[ -n "$DIRTY" ] && echo "  WARNING:        working tree dirty; :latest will NOT be pushed"
+
+# shellcheck disable=SC2086
+docker build $NO_CACHE \
+  -t "$IMAGE_VERSIONED" \
+  -t "$IMAGE_LATEST" \
+  -f "$DOCKERFILE" \
+  --build-arg "TZ=$TZ_ARG" \
+  --build-arg "CLAUDE_CODE_VERSION=$CLAUDE_CODE_VERSION" \
+  --build-arg "GIT_DELTA_VERSION=$GIT_DELTA_VERSION" \
+  "$BUILD_CONTEXT"
+
+echo "Built: $IMAGE_VERSIONED"
+
+if [ -z "$DO_PUSH" ]; then
+  echo "Skipping push (pass --push to publish to $REGISTRY)."
+  exit 0
+fi
+
+# Authenticate to the registry. Prefer the gh CLI token so CI and local
+# behave the same; fall back to an existing docker login.
+if [ -z "$NO_LOGIN" ] && [ "$REGISTRY" = "ghcr.io" ] && command -v gh > /dev/null 2>&1; then
+  echo "Logging in to $REGISTRY as $OWNER via gh..."
+  if ! gh auth token 2>/dev/null | docker login "$REGISTRY" -u "$OWNER" --password-stdin; then
+    echo "Error: docker login to $REGISTRY failed." >&2
+    echo "Ensure 'gh auth login' has the write:packages scope." >&2
+    exit 1
+  fi
+fi
+
+echo "Pushing $IMAGE_VERSIONED"
+docker push "$IMAGE_VERSIONED"
+
+if [ -n "$DIRTY" ]; then
+  echo "Working tree dirty; not pushing $IMAGE_LATEST."
+else
+  echo "Pushing $IMAGE_LATEST"
+  docker push "$IMAGE_LATEST"
+fi
+
+echo "Done: pushed to $IMAGE_BASE"

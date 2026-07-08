@@ -1,0 +1,104 @@
+#!/usr/bin/env sh
+# bin/create-pr
+
+# Determine target branch: use the first argument if given, else prompt.
+BASE_BRANCH="$1"
+if [ -z "$BASE_BRANCH" ]; then
+  echo "Available remote branches:"
+  git branch -r | grep -v 'HEAD' | sed 's|origin/||' | sed 's/^[[:space:]]*/  /'
+  printf "Target branch for PR: "
+  read -r BASE_BRANCH
+fi
+if [ -z "$BASE_BRANCH" ]; then
+  echo "Error: no target branch specified." >&2
+  echo "Usage: bin/create-pr [remote-branch]" >&2
+  exit 1
+fi
+if ! git show-ref --verify --quiet "refs/remotes/origin/$BASE_BRANCH"; then
+  echo "Error: remote branch 'origin/$BASE_BRANCH' does not exist." >&2
+  exit 1
+fi
+
+# Verify required tools
+if ! command -v gh > /dev/null 2>&1; then
+  echo "Error: gh CLI not installed." >&2
+  exit 1
+fi
+
+if ! command -v curl > /dev/null 2>&1; then
+  echo "Error: curl not installed." >&2
+  exit 1
+fi
+
+if ! command -v jq > /dev/null 2>&1; then
+  echo "Error: jq not installed." >&2
+  exit 1
+fi
+
+# Ensure commits exist ahead of base
+COMMITS=$(git log "$BASE_BRANCH..HEAD" --oneline)
+if [ -z "$COMMITS" ]; then
+  echo "No commits ahead of $BASE_BRANCH. Nothing to PR." >&2
+  exit 1
+fi
+
+LOG=$(git log "$BASE_BRANCH..HEAD" --pretty=format:"- %s")
+DIFF=$(git diff "$BASE_BRANCH"...HEAD)
+
+# Load dev tooling config (separate from app ollama.json)
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CONFIG_FILE="$PROJECT_ROOT/ollama-dev.json"
+
+PAYLOAD_FILE=$(mktemp)
+trap 'rm -f "$PAYLOAD_FILE"' EXIT
+
+PROMPT=$(printf 'Generate a pull request title and description based on the commits and diff below.\nOutput EXACTLY this format with no other text:\n\nTITLE: <title under 72 characters, imperative mood>\n\nBODY:\n<concise description with bullet points for key changes>\n\nCommits:\n%s\n\nDiff:\n%s' "$LOG" "$DIFF")
+
+call_ollama() {
+  URL="$1"
+  MODEL="$2"
+  # Pipe prompt via stdin to avoid argument length limits on large diffs
+  printf '%s' "$PROMPT" | jq -Rs --arg model "$MODEL" \
+    '{"model":$model,"prompt":.,"stream":false}' > "$PAYLOAD_FILE"
+  curl -s --connect-timeout 5 --max-time 120 "$URL/api/generate" \
+    -H 'Content-Type: application/json' \
+    --data @"$PAYLOAD_FILE" \
+    | jq -r '.response // empty' \
+    | tr -d '\r'
+}
+
+OUTPUT=""
+
+if [ -f "$CONFIG_FILE" ]; then
+  INSTANCE_COUNT=$(jq -r '.instances | length' "$CONFIG_FILE")
+  i=0
+  while [ "$i" -lt "$INSTANCE_COUNT" ]; do
+    URL=$(jq -r ".instances[$i].url" "$CONFIG_FILE")
+    MODEL=$(jq -r ".instances[$i].model // \"gemma4:latest\"" "$CONFIG_FILE")
+    echo "Generating PR title and description with $MODEL ($URL)..."
+    OUTPUT=$(call_ollama "$URL" "$MODEL")
+    [ -n "$OUTPUT" ] && break
+    echo "Unavailable, trying next instance..."
+    i=$((i + 1))
+  done
+else
+  echo "Generating PR title and description with gemma4:latest (localhost)..."
+  OUTPUT=$(call_ollama "http://localhost:11434" "gemma4:latest")
+fi
+
+if [ -z "$OUTPUT" ]; then
+  echo "Error: all Ollama instances failed." >&2
+  exit 1
+fi
+
+TITLE=$(printf '%s' "$OUTPUT" | awk '/^TITLE:/{sub(/^TITLE:[[:space:]]*/, ""); print; exit}')
+BODY=$(printf '%s' "$OUTPUT" | awk '/^BODY:/{found=1; next} found{print}' | sed '/./,$!d')
+
+if [ -z "$TITLE" ]; then
+  echo "Error: failed to parse PR title from model output." >&2
+  echo "Raw output:" >&2
+  printf '%s\n' "$OUTPUT" >&2
+  exit 1
+fi
+
+gh pr create --base "$BASE_BRANCH" --title "$TITLE" --body "$BODY"
