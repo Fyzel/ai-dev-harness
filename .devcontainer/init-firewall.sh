@@ -157,17 +157,24 @@ for domain in \
     done < <(echo "$ips")
 done
 
-# Get host IP from default route and allow the host /24 (both directions).
+# Allow ONLY the default gateway host (the Docker bridge gateway = the host's
+# address on this network), not the whole /24. A blanket /24 both directions
+# would also reach sibling containers and other host services on the subnet,
+# enabling lateral movement / an egress side-channel. Scoping to the single
+# gateway /32 keeps host reachability (e.g. the VS Code server) while denying
+# neighbors.
 HOST_IP=$(ip route | grep default | cut -d" " -f3)
 if [ -z "$HOST_IP" ]; then
-    echo "ERROR: Failed to detect host IP"
+    echo "ERROR: Failed to detect host gateway IP"
     exit 1
 fi
-
-HOST_NETWORK=$(echo "$HOST_IP" | sed "s/\.[0-9]*$/.0\/24/")
-echo "Host network detected as: $HOST_NETWORK"
-iptables -A INPUT  -s "$HOST_NETWORK" -j ACCEPT
-iptables -A OUTPUT -d "$HOST_NETWORK" -j ACCEPT
+if [[ ! "$HOST_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    echo "ERROR: Invalid host gateway IP: $HOST_IP"
+    exit 1
+fi
+echo "Host gateway detected as: $HOST_IP"
+iptables -A INPUT  -s "$HOST_IP" -j ACCEPT
+iptables -A OUTPUT -d "$HOST_IP" -j ACCEPT
 
 # Explicitly REJECT any remaining outbound traffic for immediate feedback.
 # (The DROP policy already denies it; REJECT just fails fast instead of hanging.)
