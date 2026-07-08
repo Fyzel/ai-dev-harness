@@ -25,14 +25,17 @@ else
 fi
 
 # First allow DNS and localhost before any restrictions
-# Allow outbound DNS
-iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
-# Allow inbound DNS responses
-iptables -A INPUT -p udp --sport 53 -j ACCEPT
-# Allow outbound SSH
-iptables -A OUTPUT -p tcp --dport 22 -j ACCEPT
-# Allow inbound SSH responses
-iptables -A INPUT -p tcp --sport 22 -m state --state ESTABLISHED -j ACCEPT
+# Allow outbound DNS ONLY to Docker's embedded resolver (127.0.0.11), not the
+# whole internet — a broad --dport 53 ACCEPT lets any external DNS server become
+# a hole in the default-deny egress policy. Docker DNATs this to dockerd, which
+# performs upstream resolution in the host netns; the container never needs to
+# send DNS externally. Responses ride loopback / the ESTABLISHED rule below.
+iptables -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j ACCEPT
+iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
+# SSH is intentionally NOT globally allowed: a blanket --dport 22 ACCEPT permits
+# outbound SSH to any host, bypassing the allowlist. GitHub's SSH endpoints are
+# already covered by the GitHub IP ranges added to the ipset, and the host /24 is
+# allowed later, so no separate SSH exception is needed.
 # Allow localhost
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A OUTPUT -o lo -j ACCEPT
