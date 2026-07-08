@@ -24,24 +24,73 @@ else
     echo "No Docker DNS rules to restore"
 fi
 
-# First allow DNS and localhost before any restrictions
-# Allow outbound DNS ONLY to Docker's embedded resolver (127.0.0.11), not the
-# whole internet — a broad --dport 53 ACCEPT lets any external DNS server become
-# a hole in the default-deny egress policy. Docker DNATs this to dockerd, which
-# performs upstream resolution in the host netns; the container never needs to
-# send DNS externally. Responses ride loopback / the ESTABLISHED rule below.
+# 3. IPv6 lockdown.
+# The allowlist below is IPv4-only (ipset hash:net + A-record resolution). If the
+# container has IPv6 connectivity, outbound v6 would bypass egress controls
+# entirely, so default-deny ALL IPv6 and permit only loopback. This must happen
+# before any network I/O so no v6 exfil window exists.
+if command -v ip6tables >/dev/null 2>&1; then
+    ip6tables -F
+    ip6tables -X 2>/dev/null || true
+    ip6tables -P INPUT DROP
+    ip6tables -P FORWARD DROP
+    ip6tables -P OUTPUT DROP
+    ip6tables -A INPUT  -i lo -j ACCEPT
+    ip6tables -A OUTPUT -o lo -j ACCEPT
+    echo "IPv6 egress locked down (default-deny, loopback only)"
+else
+    echo "WARNING: ip6tables not found; IPv6 egress NOT restricted"
+fi
+
+# 4. Enforce IPv4 default-deny FIRST, before any network I/O.
+# Setting the DROP policy up front closes the TOCTOU window: without it, the
+# OUTPUT chain would stay ACCEPT while we fetch GitHub ranges and resolve
+# domains, letting a process exfiltrate before the firewall is live. All
+# bootstrap egress below (dig, curl) instead rides the allowlist rules we install
+# now; the allowed-domains ipset is populated incrementally and matched
+# dynamically, so hosts become reachable only as they are added.
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT DROP
+
+# Baseline allows required for bootstrap.
+# Loopback (covers Docker's embedded DNS resolver at 127.0.0.11).
+iptables -A INPUT  -i lo -j ACCEPT
+iptables -A OUTPUT -o lo -j ACCEPT
+# Return traffic for connections we initiate.
+iptables -A INPUT  -m state --state ESTABLISHED,RELATED -j ACCEPT
+iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+# Outbound DNS ONLY to Docker's embedded resolver (127.0.0.11), never the whole
+# internet — a broad --dport 53 ACCEPT is itself an egress hole. Docker DNATs
+# this to dockerd, which resolves upstream in the host netns.
 iptables -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j ACCEPT
 iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
 # SSH is intentionally NOT globally allowed: a blanket --dport 22 ACCEPT permits
 # outbound SSH to any host, bypassing the allowlist. GitHub's SSH endpoints are
-# already covered by the GitHub IP ranges added to the ipset, and the host /24 is
-# allowed later, so no separate SSH exception is needed.
-# Allow localhost
-iptables -A INPUT -i lo -j ACCEPT
-iptables -A OUTPUT -o lo -j ACCEPT
+# already covered by the GitHub IP ranges added to the ipset below.
 
-# Create ipset with CIDR support
+# Create ipset with CIDR support, then install the allowlist-match rule NOW so it
+# is in force for the whole bootstrap. The rule matches the set dynamically, so
+# entries added later take effect immediately.
 ipset create allowed-domains hash:net
+iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
+
+# Bootstrap: resolve api.github.com and add it to the allowlist BEFORE curling it,
+# so even the first fetch goes through default-deny rather than around it.
+echo "Resolving api.github.com for bootstrap..."
+bootstrap_ips=$(dig +noall +answer A "api.github.com" | awk '$4 == "A" {print $5}')
+if [ -z "$bootstrap_ips" ]; then
+    echo "ERROR: Failed to resolve api.github.com"
+    exit 1
+fi
+while read -r ip; do
+    if [[ ! "$ip" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        echo "ERROR: Invalid IP from DNS for api.github.com: $ip"
+        exit 1
+    fi
+    echo "Adding bootstrap $ip for api.github.com"
+    ipset add allowed-domains "$ip" -exist
+done < <(echo "$bootstrap_ips")
 
 # Fetch GitHub meta information and aggregate + add their IP ranges
 echo "Fetching GitHub IP ranges..."
@@ -108,7 +157,7 @@ for domain in \
     done < <(echo "$ips")
 done
 
-# Get host IP from default route
+# Get host IP from default route and allow the host /24 (both directions).
 HOST_IP=$(ip route | grep default | cut -d" " -f3)
 if [ -z "$HOST_IP" ]; then
     echo "ERROR: Failed to detect host IP"
@@ -117,24 +166,11 @@ fi
 
 HOST_NETWORK=$(echo "$HOST_IP" | sed "s/\.[0-9]*$/.0\/24/")
 echo "Host network detected as: $HOST_NETWORK"
-
-# Set up remaining iptables rules
-iptables -A INPUT -s "$HOST_NETWORK" -j ACCEPT
+iptables -A INPUT  -s "$HOST_NETWORK" -j ACCEPT
 iptables -A OUTPUT -d "$HOST_NETWORK" -j ACCEPT
 
-# Set default policies to DROP first
-iptables -P INPUT DROP
-iptables -P FORWARD DROP
-iptables -P OUTPUT DROP
-
-# First allow established connections for already approved traffic
-iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-
-# Then allow only specific outbound traffic to allowed domains
-iptables -A OUTPUT -m set --match-set allowed-domains dst -j ACCEPT
-
-# Explicitly REJECT all other outbound traffic for immediate feedback
+# Explicitly REJECT any remaining outbound traffic for immediate feedback.
+# (The DROP policy already denies it; REJECT just fails fast instead of hanging.)
 iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
 
 echo "Firewall configuration complete"
