@@ -1,0 +1,90 @@
+#!/usr/bin/env sh
+# bin/verify-firewall
+# Build and run the firewall verification image so .devcontainer/init-firewall.sh
+# can be exercised on real Linux from a Windows host (Docker Desktop).
+#
+# Runs the container with NET_ADMIN/NET_RAW on a throwaway user-defined network
+# (required so Docker's embedded DNS resolver at 127.0.0.11 exists — the default
+# bridge does not provide it, and the firewall only permits DNS to 127.0.0.11).
+#
+# Exit code mirrors the in-container verification: 0 = pass, non-zero = fail.
+
+set -eu
+
+IMAGE="ai-dev-harness-fw-verify"
+NETWORK="fw-verify-net"
+KEEP_IMAGE=""
+
+usage() {
+  cat <<'EOF'
+Usage: bin/verify-firewall [--keep-image]
+
+Build .devcontainer/verify-firewall.Dockerfile and run init-firewall.sh inside
+it to confirm the egress firewall builds and enforces correctly.
+
+Options:
+      --keep-image   Do not remove the verification image afterwards
+  -h, --help         Show this help
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --keep-image) KEEP_IMAGE="1"; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Error: unknown option '$1'." >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+# Verify docker
+if ! command -v docker > /dev/null 2>&1; then
+  echo "Error: docker not installed or not on PATH." >&2
+  exit 1
+fi
+if ! docker info > /dev/null 2>&1; then
+  echo "Error: docker daemon not reachable. Is Docker running?" >&2
+  exit 1
+fi
+
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+CONTEXT="$PROJECT_ROOT/.devcontainer"
+DOCKERFILE="$CONTEXT/verify-firewall.Dockerfile"
+
+if [ ! -f "$DOCKERFILE" ]; then
+  echo "Error: $DOCKERFILE not found." >&2
+  exit 1
+fi
+
+echo "Building $IMAGE from verify-firewall.Dockerfile..."
+docker build -t "$IMAGE" -f "$DOCKERFILE" "$CONTEXT"
+
+# A user-defined network gives the container Docker's embedded DNS (127.0.0.11).
+CREATED_NET=""
+if ! docker network inspect "$NETWORK" > /dev/null 2>&1; then
+  docker network create "$NETWORK" > /dev/null
+  CREATED_NET="1"
+fi
+
+# Cleanup on exit regardless of outcome.
+cleanup() {
+  [ -n "$CREATED_NET" ] && docker network rm "$NETWORK" > /dev/null 2>&1 || true
+  [ -z "$KEEP_IMAGE" ] && docker image rm "$IMAGE" > /dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+echo "Running firewall verification (NET_ADMIN, NET_RAW, network=$NETWORK)..."
+set +e
+docker run --rm \
+  --cap-add=NET_ADMIN \
+  --cap-add=NET_RAW \
+  --network "$NETWORK" \
+  "$IMAGE"
+STATUS=$?
+set -e
+
+if [ "$STATUS" -eq 0 ]; then
+  echo "Firewall verification PASSED"
+else
+  echo "Firewall verification FAILED (exit $STATUS)" >&2
+fi
+exit "$STATUS"
