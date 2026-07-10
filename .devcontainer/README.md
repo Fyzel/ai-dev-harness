@@ -11,8 +11,9 @@ modified so telemetry/error-reporting endpoints are blocked rather than allowed.
 | File                    | Role                                                                                                     |
 |-------------------------|----------------------------------------------------------------------------------------------------------|
 | `devcontainer.json`     | Volume mounts, `NET_ADMIN`/`NET_RAW` capabilities, telemetry-opt-out env, runs the firewall on start     |
-| `Dockerfile`            | `node:20` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings wiring |
+| `Dockerfile`            | `node:20` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings + entrypoint wiring |
 | `init-firewall.sh`      | Programs iptables/ipset: default-DROP egress, allowlist only                                             |
+| `entrypoint.sh`         | Runs `init-firewall.sh` on every container start then execs the command (fail-closed) — enforces egress on a raw `docker`/`podman run`, not only the dev container |
 | `managed-settings.json` | Telemetry opt-out at highest settings precedence (cannot be re-enabled from inside the container)        |
 
 ## Usage
@@ -24,6 +25,12 @@ modified so telemetry/error-reporting endpoints are blocked rather than allowed.
 First start fetches GitHub IP ranges and resolves the allowlisted domains. Watch the
 `postStartCommand` output for `Firewall verification passed` lines. The firewall
 re-runs on every container start (`postStartCommand`), so it survives restarts.
+
+Outside the dev container, the image `ENTRYPOINT` (`entrypoint.sh`) programs the
+firewall before running your command, so a plain `docker`/`podman run` is locked
+down too — provided you pass `--cap-add=NET_ADMIN --cap-add=NET_RAW`. It is
+fail-closed: if the firewall can't be programmed, the container refuses to start.
+To bypass it deliberately (debugging), override with `--entrypoint /bin/bash`.
 
 ## Persistent authentication
 
@@ -57,10 +64,12 @@ Allowed:
 | GitHub meta IP ranges (`api.github.com/meta`)                                                  | git / `gh` / clones                                 |
 | `registry.npmjs.org`                                                                           | npm package installs                                |
 | `api.anthropic.com`                                                                            | Claude API **and** the WebFetch domain-safety check |
-| `claude.ai`                                                                                    | claude.ai account sign-in                           |
+| `claude.ai`                                                                                    | claude.ai account sign-in + install script          |
 | `platform.claude.com`                                                                          | Anthropic Console sign-in                           |
+| `downloads.claude.ai`                                                                          | Claude Code self-updater (release binaries + keys)  |
 | `marketplace.visualstudio.com`, `vscode.blob.core.windows.net`, `update.code.visualstudio.com` | VS Code server + extensions                         |
-| Host `/24`, DNS (53), loopback, SSH (22)                                                       | Container plumbing                                  |
+| `deb.debian.org`, `security.debian.org`                                                        | Debian `apt` packages at runtime (CDN — see note)   |
+| Host gateway (`/32`), DNS to `resolv.conf` nameservers, loopback                               | Container plumbing (gateway only — no siblings, no blanket SSH) |
 
 ### Telemetry: blocked, two layers
 
