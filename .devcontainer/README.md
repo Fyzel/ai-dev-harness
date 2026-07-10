@@ -32,6 +32,12 @@ down too — provided you pass `--cap-add=NET_ADMIN --cap-add=NET_RAW`. It is
 fail-closed: if the firewall can't be programmed, the container refuses to start.
 To bypass it deliberately (debugging), override with `--entrypoint /bin/bash`.
 
+The entrypoint runs the firewall **quietly** — its verbose per-rule output is
+suppressed on a successful start and replayed only if it fails. Set
+`FIREWALL_VERBOSE=1` (e.g. `-e FIREWALL_VERBOSE=1`) to stream the full output.
+(Note: the dev container's `postStartCommand` path is unaffected and still logs
+verbosely to the dev-container startup log.)
+
 ## Persistent authentication
 
 The container home directory is discarded on rebuild. Two named volumes preserve state:

@@ -16,10 +16,26 @@ set -euo pipefail
 # firewall (e.g. debugging), override the entrypoint:
 #   podman run --entrypoint /bin/bash <image>
 
-if ! sudo /usr/local/bin/init-firewall.sh; then
+# Program the firewall quietly: capture its (verbose) output and surface it only
+# on failure, so a normal start is clean while diagnostics survive when it matters.
+# Set FIREWALL_VERBOSE=1 to stream the full output instead.
+fw_log=$(mktemp)
+fw_rc=0
+if [ "${FIREWALL_VERBOSE:-0}" = "1" ]; then
+    sudo /usr/local/bin/init-firewall.sh || fw_rc=$?
+else
+    # SC2024: the redirect targets a node-owned mktemp file written by this shell,
+    # not a root-owned path, so sudo's output is captured correctly here.
+    # shellcheck disable=SC2024
+    sudo /usr/local/bin/init-firewall.sh >"$fw_log" 2>&1 || fw_rc=$?
+fi
+if [ "$fw_rc" -ne 0 ]; then
+    [ "${FIREWALL_VERBOSE:-0}" = "1" ] || cat "$fw_log" >&2
+    rm -f "$fw_log"
     echo "FATAL: egress firewall failed to initialize; refusing to start." >&2
     echo "       Ensure the container has --cap-add=NET_ADMIN --cap-add=NET_RAW." >&2
     exit 1
 fi
+rm -f "$fw_log"
 
 exec "$@"
