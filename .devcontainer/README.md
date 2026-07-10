@@ -18,9 +18,29 @@ modified so telemetry/error-reporting endpoints are blocked rather than allowed.
 
 ## Usage
 
-1. Install VS Code + the **Dev Containers** extension, and Docker.
+1. Install VS Code + the **Dev Containers** extension, and a container engine (Docker or Podman).
 2. Open this repo in VS Code → Command Palette → **Dev Containers: Rebuild Container**.
 3. Open a terminal in the container, run `claude`, follow the sign-in prompt.
+
+### Docker vs Podman backend
+
+The config is standard Dev Containers spec and works with either engine. To use
+**Podman**, point the extension at it in VS Code settings (no repo change):
+
+```jsonc
+// settings.json
+"dev.containers.dockerPath": "podman"
+```
+
+On WSL, run this against your Podman-enabled distro. The `:Z` SELinux relabel is
+generally unneeded on WSL; add it to the workspace mount only if you hit
+permission errors.
+
+> In the VS Code path the extension sets `overrideCommand` (default for
+> Dockerfile-based configs), replacing the image command with its own keep-alive
+> loop — so the image `ENTRYPOINT` is bypassed and the firewall is programmed by
+> `postStartCommand` instead. The `ENTRYPOINT` is the enforcement path for a raw
+> `docker`/`podman run`. Both paths end up firewalled.
 
 First start fetches GitHub IP ranges and resolves the allowlisted domains. Watch the
 `postStartCommand` output for `Firewall verification passed` lines. The firewall

@@ -39,6 +39,11 @@ There is no application source package: this repo *is* the harness. The
   user-defined network so Docker's `127.0.0.11` resolver exists.
 - **Run:** VS Code *Rebuild Container*, or `podman`/`docker run` the GHCR image
   with `--cap-add=NET_ADMIN --cap-add=NET_RAW`. See `README.md`.
+  - VS Code Dev Containers works with either engine; for Podman set
+    `"dev.containers.dockerPath": "podman"` in VS Code settings (no repo change).
+  - Firewall enforcement differs by path: VS Code overrides the image command, so
+    the firewall runs via `postStartCommand`; a raw `docker`/`podman run` runs it
+    via the image `ENTRYPOINT`. Keep both paths working when editing either.
 
 ## Conventions
 
