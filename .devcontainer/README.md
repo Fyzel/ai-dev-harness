@@ -8,12 +8,12 @@ modified so telemetry/error-reporting endpoints are blocked rather than allowed.
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `devcontainer.json` | Volume mounts, `NET_ADMIN`/`NET_RAW` capabilities, telemetry-opt-out env, runs the firewall on start |
-| `Dockerfile` | `node:20` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings wiring |
-| `init-firewall.sh` | Programs iptables/ipset: default-DROP egress, allowlist only |
-| `managed-settings.json` | Telemetry opt-out at highest settings precedence (cannot be re-enabled from inside the container) |
+| File                    | Role                                                                                                     |
+|-------------------------|----------------------------------------------------------------------------------------------------------|
+| `devcontainer.json`     | Volume mounts, `NET_ADMIN`/`NET_RAW` capabilities, telemetry-opt-out env, runs the firewall on start     |
+| `Dockerfile`            | `node:20` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings wiring |
+| `init-firewall.sh`      | Programs iptables/ipset: default-DROP egress, allowlist only                                             |
+| `managed-settings.json` | Telemetry opt-out at highest settings precedence (cannot be re-enabled from inside the container)        |
 
 ## Usage
 
@@ -29,10 +29,10 @@ re-runs on every container start (`postStartCommand`), so it survives restarts.
 
 The container home directory is discarded on rebuild. Two named volumes preserve state:
 
-| Volume | Mount | Holds |
-| --- | --- | --- |
-| `claude-code-config-${devcontainerId}` | `/home/node/.claude` | Auth token, user settings, session history |
-| `claude-code-bashhistory-${devcontainerId}` | `/commandhistory` | Shell history |
+| Volume                                      | Mount                | Holds                                      |
+|---------------------------------------------|----------------------|--------------------------------------------|
+| `claude-code-config-${devcontainerId}`      | `/home/node/.claude` | Auth token, user settings, session history |
+| `claude-code-bashhistory-${devcontainerId}` | `/commandhistory`    | Shell history                              |
 
 `CLAUDE_CONFIG_DIR` points Claude Code at `/home/node/.claude`. `${devcontainerId}`
 scopes the volumes to **this project** — other repos get their own auth/state, not a
@@ -52,15 +52,15 @@ to an `ipset` allowlist. Everything else is `REJECT`ed.
 
 Allowed:
 
-| Destination | Why |
-| --- | --- |
-| GitHub meta IP ranges (`api.github.com/meta`) | git / `gh` / clones |
-| `registry.npmjs.org` | npm package installs |
-| `api.anthropic.com` | Claude API **and** the WebFetch domain-safety check |
-| `claude.ai` | claude.ai account sign-in |
-| `platform.claude.com` | Anthropic Console sign-in |
-| `marketplace.visualstudio.com`, `vscode.blob.core.windows.net`, `update.code.visualstudio.com` | VS Code server + extensions |
-| Host `/24`, DNS (53), loopback, SSH (22) | Container plumbing |
+| Destination                                                                                    | Why                                                 |
+|------------------------------------------------------------------------------------------------|-----------------------------------------------------|
+| GitHub meta IP ranges (`api.github.com/meta`)                                                  | git / `gh` / clones                                 |
+| `registry.npmjs.org`                                                                           | npm package installs                                |
+| `api.anthropic.com`                                                                            | Claude API **and** the WebFetch domain-safety check |
+| `claude.ai`                                                                                    | claude.ai account sign-in                           |
+| `platform.claude.com`                                                                          | Anthropic Console sign-in                           |
+| `marketplace.visualstudio.com`, `vscode.blob.core.windows.net`, `update.code.visualstudio.com` | VS Code server + extensions                         |
+| Host `/24`, DNS (53), loopback, SSH (22)                                                       | Container plumbing                                  |
 
 ### Telemetry: blocked, two layers
 
