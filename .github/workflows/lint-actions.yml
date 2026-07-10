@@ -1,0 +1,31 @@
+name: Lint workflows
+
+# Static-check the GitHub Actions workflow files with actionlint:
+# validates workflow syntax/expressions, flags deprecated/unknown keys, and runs
+# shellcheck over the `run:` scripts embedded in the workflows.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+
+      # Run actionlint from its official image, version-pinned for reproducibility.
+      # The image bundles shellcheck, so embedded run-script issues are caught too.
+      - name: actionlint
+        run: |
+          docker run --rm -v "$PWD":/repo --workdir /repo \
+            rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 -color # 1.7.12
