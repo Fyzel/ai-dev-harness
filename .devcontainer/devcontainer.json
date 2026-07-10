@@ -52,9 +52,9 @@
     "DISABLE_TELEMETRY": "1",
     "DISABLE_ERROR_REPORTING": "1",
     "DISABLE_FEEDBACK_COMMAND": "1",
-    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1",
-    // Keep the pinned CLI; don't reach the updater at runtime.
-    "DISABLE_AUTOUPDATER": "1"
+    "CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY": "1"
+    // Auto-updater intentionally LEFT ENABLED: Claude Code self-updates in the
+    // background from downloads.claude.ai (allowlisted in init-firewall.sh).
   },
 
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",

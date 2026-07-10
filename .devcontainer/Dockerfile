@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   iptables \
   ipset \
   iproute2 \
+  iputils-ping \
   dnsutils \
   aggregate \
   jq \
@@ -38,10 +39,16 @@ RUN mkdir /commandhistory \
   && touch /commandhistory/.bash_history \
   && chown -R $USERNAME /commandhistory \
   && echo "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
-     >> /home/$USERNAME/.bashrc
+     >> /home/$USERNAME/.bashrc \
+  && echo "alias l='ls -la'" >> /home/$USERNAME/.bashrc
 
 # Set `DEVCONTAINER` environment variable to help with orientation
 ENV DEVCONTAINER=true
+
+# Pin Claude Code config/auth to a fixed dir so it is identical whether the image
+# is launched via the dev container OR run directly (podman/docker run). Mount a
+# persistent volume at this path to keep the login across runs.
+ENV CLAUDE_CONFIG_DIR=/home/node/.claude
 
 # Create workspace and config directories and set permissions
 RUN mkdir -p /workspace /home/node/.claude && \
@@ -54,6 +61,9 @@ RUN ARCH=$(dpkg --print-architecture) && \
   wget "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
   dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
   rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
+
+# Make bash the node user's login shell (base image may leave it as /bin/sh).
+RUN usermod -s /bin/bash node
 
 # Set up non-root user
 USER node
@@ -85,4 +95,12 @@ COPY init-firewall.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/init-firewall.sh && \
   echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
   chmod 0440 /etc/sudoers.d/node-firewall
+
+# Entrypoint programs the egress firewall on every container start (any runtime,
+# not just dev containers), then execs the requested command. Fail-closed.
+COPY entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/entrypoint.sh
 USER node
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["/bin/bash"]

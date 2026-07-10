@@ -61,11 +61,27 @@ iptables -A OUTPUT -o lo -j ACCEPT
 # Return traffic for connections we initiate.
 iptables -A INPUT  -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-# Outbound DNS ONLY to Docker's embedded resolver (127.0.0.11), never the whole
-# internet — a broad --dport 53 ACCEPT is itself an egress hole. Docker DNATs
-# this to dockerd, which resolves upstream in the host netns.
-iptables -A OUTPUT -p udp -d 127.0.0.11 --dport 53 -j ACCEPT
-iptables -A OUTPUT -p tcp -d 127.0.0.11 --dport 53 -j ACCEPT
+# Outbound DNS ONLY to the resolver(s) this container was actually assigned,
+# never the whole internet — a broad --dport 53 ACCEPT is itself an egress hole.
+# Parse the nameserver(s) from /etc/resolv.conf so this works across runtimes
+# instead of hardcoding one address:
+#   - Docker:  127.0.0.11            (embedded resolver, DNAT'd to dockerd)
+#   - Podman:  e.g. 10.0.2.3         (pasta/netavark) + WSL host 10.255.255.254
+resolvers=$(awk '/^nameserver/ {print $2}' /etc/resolv.conf)
+if [ -z "$resolvers" ]; then
+    echo "ERROR: no nameserver found in /etc/resolv.conf" >&2
+    exit 1
+fi
+while read -r ns; do
+    # IPv4 only; the IPv6 stack is default-deny above.
+    if [[ ! "$ns" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+        echo "Skipping non-IPv4 nameserver: $ns"
+        continue
+    fi
+    echo "Allowing DNS to resolver $ns"
+    iptables -A OUTPUT -p udp -d "$ns" --dport 53 -j ACCEPT
+    iptables -A OUTPUT -p tcp -d "$ns" --dport 53 -j ACCEPT
+done < <(echo "$resolvers")
 # SSH is intentionally NOT globally allowed: a blanket --dport 22 ACCEPT permits
 # outbound SSH to any host, bypassing the allowlist. GitHub's SSH endpoints are
 # already covered by the GitHub IP ranges added to the ipset below.
@@ -132,19 +148,31 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -E '^[0-9]{1,
 # Only essential domains are allowed:
 #     registry.npmjs.org           - npm package installs
 #     api.anthropic.com            - Claude API + WebFetch domain safety check
-#     claude.ai                    - claude.ai account authentication
+#     claude.ai                    - claude.ai account authentication + install script
+#     downloads.claude.ai          - Claude Code self-updater (release binaries + keys)
 #     platform.claude.com          - Anthropic Console account authentication
 #     marketplace.visualstudio.com - VS Code extension marketplace
 #     vscode.blob.core.windows.net - VS Code extension downloads
 #     update.code.visualstudio.com - VS Code server bootstrap
+#     deb.debian.org               - Debian apt packages (runtime `apt-get install`)
+#     security.debian.org          - Debian apt security updates
+#
+# CDN CAVEAT: deb.debian.org / security.debian.org are Fastly-fronted CDNs whose
+# A records rotate across many IPs. This script resolves them ONCE at firewall
+# init and pins only those IPs. A later `apt-get` may be routed to a CDN IP not
+# in the set and fail; re-run this script (re-resolves) to refresh. This is the
+# trade-off for allowing runtime apt while keeping default-deny egress.
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
     "claude.ai" \
+    "downloads.claude.ai" \
     "platform.claude.com" \
     "marketplace.visualstudio.com" \
     "vscode.blob.core.windows.net" \
-    "update.code.visualstudio.com"; do
+    "update.code.visualstudio.com" \
+    "deb.debian.org" \
+    "security.debian.org"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
