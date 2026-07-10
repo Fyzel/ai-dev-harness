@@ -35,9 +35,24 @@ Claude Code runs as the non-root `node` user with:
 
 ### Run it — VS Code dev container
 
-1. Install VS Code + the **Dev Containers** extension and Docker.
+1. Install VS Code + the **Dev Containers** extension and a container engine (Docker or Podman).
 2. Open this repo → Command Palette → **Dev Containers: Rebuild Container**.
 3. Open a terminal, run `claude`, sign in. Rebuilds keep you signed in.
+
+In the VS Code path the firewall runs via `postStartCommand` (the extension keeps
+the container alive with its own command, so the image `ENTRYPOINT` is bypassed —
+egress is still enforced).
+
+**Using Podman instead of Docker:** point the extension at Podman in VS Code
+settings — no repo change needed:
+
+```jsonc
+// settings.json
+"dev.containers.dockerPath": "podman"
+```
+
+On WSL, run this against your Podman-enabled distro. SELinux relabel (`:Z`) is
+generally unnecessary there; add it to the mount only if you hit permission errors.
 
 ### Run it — podman / docker directly
 

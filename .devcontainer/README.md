@@ -11,16 +11,36 @@ modified so telemetry/error-reporting endpoints are blocked rather than allowed.
 | File                    | Role                                                                                                     |
 |-------------------------|----------------------------------------------------------------------------------------------------------|
 | `devcontainer.json`     | Volume mounts, `NET_ADMIN`/`NET_RAW` capabilities, telemetry-opt-out env, runs the firewall on start     |
-| `Dockerfile`            | `node:20` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings + entrypoint wiring |
+| `Dockerfile`            | `node:22` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings + entrypoint wiring |
 | `init-firewall.sh`      | Programs iptables/ipset: default-DROP egress, allowlist only                                             |
 | `entrypoint.sh`         | Runs `init-firewall.sh` on every container start then execs the command (fail-closed) — enforces egress on a raw `docker`/`podman run`, not only the dev container |
 | `managed-settings.json` | Telemetry opt-out at highest settings precedence (cannot be re-enabled from inside the container)        |
 
 ## Usage
 
-1. Install VS Code + the **Dev Containers** extension, and Docker.
+1. Install VS Code + the **Dev Containers** extension, and a container engine (Docker or Podman).
 2. Open this repo in VS Code → Command Palette → **Dev Containers: Rebuild Container**.
 3. Open a terminal in the container, run `claude`, follow the sign-in prompt.
+
+### Docker vs Podman backend
+
+The config is standard Dev Containers spec and works with either engine. To use
+**Podman**, point the extension at it in VS Code settings (no repo change):
+
+```jsonc
+// settings.json
+"dev.containers.dockerPath": "podman"
+```
+
+On WSL, run this against your Podman-enabled distro. The `:Z` SELinux relabel is
+generally unneeded on WSL; add it to the workspace mount only if you hit
+permission errors.
+
+> In the VS Code path the extension sets `overrideCommand` (default for
+> Dockerfile-based configs), replacing the image command with its own keep-alive
+> loop — so the image `ENTRYPOINT` is bypassed and the firewall is programmed by
+> `postStartCommand` instead. The `ENTRYPOINT` is the enforcement path for a raw
+> `docker`/`podman run`. Both paths end up firewalled.
 
 First start fetches GitHub IP ranges and resolves the allowlisted domains. Watch the
 `postStartCommand` output for `Firewall verification passed` lines. The firewall
