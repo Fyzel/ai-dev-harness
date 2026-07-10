@@ -4,33 +4,57 @@ Guidance for Claude Code working in this repository.
 
 ## Project
 
-`ai-harness` — a personalized AI harness for Claude Code. Early stage: no
-application source exists yet beyond scaffolding.
+`ai-dev-harness` — a security-hardened container for running Claude Code, plus the
+tooling to build, verify, and publish it. The image runs Claude Code as the
+non-root `node` user behind a default-deny egress firewall, with blocked
+telemetry and persistent auth, and is published to `ghcr.io/fyzel/ai-dev-harness`.
 
-## Status
+There is no application source package: this repo *is* the harness. The
+"product" is the container image and the POSIX shell tooling around it.
 
-Fresh repository. Tracked files: `README.md`, `.gitignore`, `CLAUDE.md`, and
-`ollama-dev.sample.json`. There is no application source package, tests, build
-config, or dependency manifest yet.
+## Layout
 
-## Config
+| Path | Role |
+|------|------|
+| `.devcontainer/Dockerfile` | `node:20` base + dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings wiring, entrypoint. |
+| `.devcontainer/init-firewall.sh` | Programs iptables/ipset: default-DROP egress, ipset allowlist, DNS only to the container's `resolv.conf` nameservers, host gateway `/32`, IPv6 lockdown. Self-verifies (telemetry blocked, GitHub reachable) and exits non-zero on failure. |
+| `.devcontainer/entrypoint.sh` | Runs the firewall on every container start, then `exec`s the command. Fail-closed. |
+| `.devcontainer/devcontainer.json` | Volume mounts, `NET_ADMIN`/`NET_RAW`, env, `postStartCommand` firewall run. |
+| `.devcontainer/managed-settings.json` | Telemetry opt-out at highest settings precedence (can't be re-enabled from inside). |
+| `.devcontainer/verify-firewall.Dockerfile` | Standalone image to exercise `init-firewall.sh` on Linux from a Windows host. |
+| `.devcontainer/README.md` | Authoritative firewall / allowlist / persistent-auth documentation. |
+| `bin/build-image` | Build + optionally push the image to GHCR (uses `docker`). |
+| `bin/verify-firewall` | Build + run the verify image; exit code = firewall pass/fail. |
+| `bin/create-pr` | Generate a PR title/body via a local Ollama model, open the PR with `gh`. |
+| `.github/workflows/build-image.yml` | Build on PRs, push on `main` / tags. Third-party actions SHA-pinned. |
+| `.github/workflows/lint-actions.yml` | `actionlint` (digest-pinned image) on workflow changes. |
+| `.github/dependabot.yml` | Weekly `github-actions` updates (bumps SHA pins + version comments). |
+| `ollama-dev.sample.json` | Sample Ollama backend list for `bin/create-pr` (copy to gitignored `ollama-dev.json`). |
 
-`ollama-dev.sample.json` is a sample config: a list of Ollama `instances`, each
-with a `url` (e.g. `http://localhost:11434`) and a `model`. Implies the harness
-targets one or more Ollama backends, possibly load-balanced across hosts. Copy
-to a real (gitignored) config when implementing.
+## Build / verify / run
 
-## Environment
-
-- Recommended: use the VS Code Dev Container in `.devcontainer/` (Linux, Node 20 base).
-- Local OS/IDE setup is developer-specific; keep `.venv/` and `.idea/` untracked via `.gitignore`.
+- **Build image:** `bin/build-image [--push]` — needs Docker; `--push` needs `gh`
+  with `write:packages`.
+- **Verify firewall:** `bin/verify-firewall` — needs Docker; runs on a
+  user-defined network so Docker's `127.0.0.11` resolver exists.
+- **Run:** VS Code *Rebuild Container*, or `podman`/`docker run` the GHCR image
+  with `--cap-add=NET_ADMIN --cap-add=NET_RAW`. See `README.md`.
 
 ## Conventions
 
-- The `.gitignore` is the standard Python template — keep `.venv/`, `__pycache__/`,
-  build artifacts, and IDE files out of commits.
+- Scripts are POSIX `sh`, except `init-firewall.sh` / `entrypoint.sh` which are
+  bash. `*.sh` is pinned to LF via `.gitattributes` — a CRLF checkout breaks the
+  Linux shebang.
+- GitHub Actions are pinned to full commit SHAs with a trailing `# vX.Y.Z`
+  comment; Dependabot bumps both together. Keep any new `uses:` SHA-pinned. The
+  `actionlint` container in `lint-actions.yml` is pinned by image **digest**.
+- Firewall allowlist: add hostnames to the `for domain in …` loop in
+  `init-firewall.sh`. CDN-fronted hosts (Debian mirrors, `downloads.claude.ai`)
+  pin the IPs resolved at start — re-run the script if their IPs rotate.
+- Telemetry endpoints stay **off** the allowlist by design — do not add them.
 
-## Notes for future updates
+## Notes
 
-Once real code lands, expand this file with: package layout, how to run/build,
-how to run tests and lint, and any architecture worth knowing before editing.
+- The real Ollama config `ollama-dev.json` is gitignored; only the sample is tracked.
+- The `.gitignore` base is the standard Python template — keep `.venv/`,
+  `__pycache__/`, build artifacts, and IDE files out of commits.
