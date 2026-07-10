@@ -11,7 +11,7 @@ modified so telemetry/error-reporting endpoints are blocked rather than allowed.
 | File                    | Role                                                                                                     |
 |-------------------------|----------------------------------------------------------------------------------------------------------|
 | `devcontainer.json`     | Volume mounts, `NET_ADMIN`/`NET_RAW` capabilities, telemetry-opt-out env, runs the firewall on start     |
-| `Dockerfile`            | `node:20` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings + entrypoint wiring |
+| `Dockerfile`            | `node:22` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings + entrypoint wiring |
 | `init-firewall.sh`      | Programs iptables/ipset: default-DROP egress, allowlist only                                             |
 | `entrypoint.sh`         | Runs `init-firewall.sh` on every container start then execs the command (fail-closed) — enforces egress on a raw `docker`/`podman run`, not only the dev container |
 | `managed-settings.json` | Telemetry opt-out at highest settings precedence (cannot be re-enabled from inside the container)        |
