@@ -4,8 +4,12 @@
 # .devcontainer/Dockerfile to the GitHub Container Registry (ghcr.io).
 #
 # Tags produced:
-#   <registry>/<owner>/<name>:<version>   version = git describe / short sha
-#   <registry>/<owner>/<name>:latest      skipped on a dirty tree (see below)
+#   <registry>/<owner>/<name>:<version>     SemVer, derived from git tags/history
+#                                            (see the "Derive a SemVer-compatible
+#                                            version" block below); overridable
+#                                            via --version
+#   <registry>/<owner>/<name>:latest        skipped on a dirty tree, or with --no-latest
+#   <registry>/<owner>/<name>:<extra-tag>   optional, via --extra-tag (skipped on a dirty tree too)
 
 set -eu
 
@@ -20,19 +24,23 @@ NO_CACHE=""
 DO_PUSH=""
 NO_LOGIN=""                  # skip gh auto-login (CI logs in itself)
 VERSION=""                   # overridable via --version
+EXTRA_TAG=""                 # optional floating tag, e.g. "dev" / "release"
+NO_LATEST=""                 # skip building/pushing :latest
 
 usage() {
   cat <<'EOF'
 Usage: bin/build-image [options]
 
 Build the devcontainer image and tag it for ghcr.io. With --push, log in
-via the gh CLI and push both the versioned tag and :latest.
+via the gh CLI and push both the versioned tag and :latest (unless --no-latest).
 
 Options:
       --registry HOST       Container registry (default: ghcr.io)
       --owner NAME          Registry namespace (default: fyzel)
       --name NAME           Image name (default: ai-dev-harness)
-      --version VER         Version tag (default: git describe / short sha)
+      --version VER         Version tag (default: derived SemVer, see header)
+      --extra-tag TAG       Additional floating tag to build/push (e.g. dev, release)
+      --no-latest           Do not build or push the :latest tag
       --push                Push tags to the registry after building
       --no-login            Skip gh auto-login (assume already docker-logged-in)
       --tz ZONE             TZ build arg (default: $TZ or America/Edmonton)
@@ -44,7 +52,9 @@ Options:
 Examples:
   bin/build-image                       # build local tags only
   bin/build-image --push                # build + push versioned tag and :latest
-  bin/build-image --version v1.2.3 --push
+  bin/build-image --version 1.2.3 --push
+  bin/build-image --extra-tag dev --push
+  bin/build-image --extra-tag dev --no-latest --push   # dev branch: no :latest
 EOF
 }
 
@@ -63,6 +73,11 @@ while [ $# -gt 0 ]; do
     --version)
       [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
       VERSION="$2"; shift 2 ;;
+    --extra-tag)
+      [ $# -ge 2 ] || { echo "Error: $1 requires a value." >&2; exit 1; }
+      EXTRA_TAG="$2"; shift 2 ;;
+    --no-latest)
+      NO_LATEST="1"; shift ;;
     --push)
       DO_PUSH="1"; shift ;;
     --no-login)
@@ -112,36 +127,68 @@ fi
 OWNER=$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')
 IMAGE_NAME=$(printf '%s' "$IMAGE_NAME" | tr '[:upper:]' '[:lower:]')
 
-# Derive version tag from git if not supplied.
+# Derive a SemVer-compatible version from git if not supplied via --version.
+#   <X.Y.Z>                          exact match on a vX.Y.Z tag, clean tree
+#   <X.Y.Z>-dev.<n>.<sha>[.dirty]    n commits past vX.Y.Z (or since repo root
+#                                    if untagged); sha = short HEAD sha
+# No "+build" metadata: OCI/Docker tags don't allow "+", so the commit info
+# lives in the (dot-delimited, SemVer-legal) prerelease field instead.
 DIRTY=""
 if [ -z "$VERSION" ]; then
-  if VERSION=$(git -C "$PROJECT_ROOT" describe --tags --always --dirty 2>/dev/null); then
-    :
+  SHORT_SHA=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "0000000")
+  if ! git -C "$PROJECT_ROOT" diff --quiet HEAD -- 2>/dev/null; then
+    DIRTY="1"
+  fi
+
+  LAST_TAG=$(git -C "$PROJECT_ROOT" describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' 2>/dev/null || echo "")
+  if [ -n "$LAST_TAG" ]; then
+    BASE_VERSION=${LAST_TAG#v}
+    COMMITS_SINCE=$(git -C "$PROJECT_ROOT" rev-list "$LAST_TAG..HEAD" --count 2>/dev/null || echo 0)
   else
-    VERSION=$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || echo "dev")
+    BASE_VERSION="1.0.0"
+    COMMITS_SINCE=$(git -C "$PROJECT_ROOT" rev-list HEAD --count 2>/dev/null || echo 0)
+  fi
+
+  # Guard against a tag that doesn't actually look like a semver core.
+  case "$BASE_VERSION" in
+    [0-9]*.[0-9]*.[0-9]*) : ;;
+    *) BASE_VERSION="1.0.0" ;;
+  esac
+
+  if [ "$COMMITS_SINCE" = "0" ] && [ -z "$DIRTY" ]; then
+    VERSION="$BASE_VERSION"
+  else
+    VERSION="$BASE_VERSION-dev.$COMMITS_SINCE.$SHORT_SHA"
+    [ -n "$DIRTY" ] && VERSION="$VERSION.dirty"
   fi
 fi
-case "$VERSION" in
-  *-dirty) DIRTY="1" ;;
-esac
 
 IMAGE_BASE="$REGISTRY/$OWNER/$IMAGE_NAME"
 IMAGE_VERSIONED="$IMAGE_BASE:$VERSION"
-IMAGE_LATEST="$IMAGE_BASE:latest"
+IMAGE_LATEST=""
+[ -z "$NO_LATEST" ] && IMAGE_LATEST="$IMAGE_BASE:latest"
+IMAGE_EXTRA=""
+[ -n "$EXTRA_TAG" ] && IMAGE_EXTRA="$IMAGE_BASE:$EXTRA_TAG"
+
+ALSO_TAGS=""
+for t in "$IMAGE_LATEST" "$IMAGE_EXTRA"; do
+  [ -n "$t" ] && ALSO_TAGS="${ALSO_TAGS:+$ALSO_TAGS, }$t"
+done
 
 echo "Building $IMAGE_VERSIONED"
 echo "  context:        $BUILD_CONTEXT"
-echo "  also tags:      $IMAGE_LATEST"
+[ -n "$ALSO_TAGS" ] && echo "  also tags:      $ALSO_TAGS"
 echo "  TZ:             $TZ_ARG"
 echo "  Claude Code:    $CLAUDE_CODE_VERSION"
 echo "  git-delta:      $GIT_DELTA_VERSION"
 [ -n "$NO_CACHE" ] && echo "  cache:          disabled"
-[ -n "$DIRTY" ] && echo "  WARNING:        working tree dirty; :latest will NOT be pushed"
+[ -n "$DIRTY" ] && echo "  WARNING:        working tree dirty; :latest / extra tag will NOT be pushed"
 
 # shellcheck disable=SC2086
 docker build $NO_CACHE \
   -t "$IMAGE_VERSIONED" \
-  -t "$IMAGE_LATEST" \
+  ${IMAGE_LATEST:+-t "$IMAGE_LATEST"} \
+  ${IMAGE_EXTRA:+-t "$IMAGE_EXTRA"} \
   -f "$DOCKERFILE" \
   --build-arg "TZ=$TZ_ARG" \
   --build-arg "CLAUDE_CODE_VERSION=$CLAUDE_CODE_VERSION" \
@@ -169,11 +216,22 @@ fi
 echo "Pushing $IMAGE_VERSIONED"
 docker push "$IMAGE_VERSIONED"
 
-if [ -n "$DIRTY" ]; then
-  echo "Working tree dirty; not pushing $IMAGE_LATEST."
-else
-  echo "Pushing $IMAGE_LATEST"
-  docker push "$IMAGE_LATEST"
+if [ -n "$IMAGE_LATEST" ]; then
+  if [ -n "$DIRTY" ]; then
+    echo "Working tree dirty; not pushing $IMAGE_LATEST."
+  else
+    echo "Pushing $IMAGE_LATEST"
+    docker push "$IMAGE_LATEST"
+  fi
+fi
+
+if [ -n "$IMAGE_EXTRA" ]; then
+  if [ -n "$DIRTY" ]; then
+    echo "Working tree dirty; not pushing $IMAGE_EXTRA."
+  else
+    echo "Pushing $IMAGE_EXTRA"
+    docker push "$IMAGE_EXTRA"
+  fi
 fi
 
 echo "Done: pushed to $IMAGE_BASE"

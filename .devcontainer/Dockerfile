@@ -40,7 +40,8 @@ RUN mkdir /commandhistory \
   && chown -R $USERNAME /commandhistory \
   && echo "export PROMPT_COMMAND='history -a' && export HISTFILE=/commandhistory/.bash_history" \
      >> /home/$USERNAME/.bashrc \
-  && echo "alias l='ls -la'" >> /home/$USERNAME/.bashrc
+  && echo "alias l='ls -la'" >> /home/$USERNAME/.bashrc \
+  && echo "alias claude-yolo='claude --dangerously-skip-permissions'" >> /home/$USERNAME/.bashrc
 
 # Set `DEVCONTAINER` environment variable to help with orientation
 ENV DEVCONTAINER=true
