@@ -24,6 +24,19 @@ modified so telemetry/error-reporting endpoints are blocked rather than allowed.
 
 ### Docker vs Podman backend
 
+**Podman is recommended** over Docker on Windows, Linux, and macOS. Docker's
+usual deployment relies on a long-running `dockerd` daemon running as root,
+with a Unix socket that is effectively root-equivalent — anyone who can reach
+it can mount the host filesystem or launch a privileged container. Docker does
+have a rootless mode, but it's opt-in and less commonly deployed. Podman is
+daemonless and rootless by default: there's no persistent root process, and
+containers are forked directly under the invoking user, so that's the standard
+Podman experience rather than a bolt-on. Note that `NET_ADMIN`/`NET_RAW` behave
+a bit differently under rootless Podman — the capability applies within the
+container's own user/network namespace (via `slirp4netns`/`pasta`), not the
+host's real network stack. That's still sufficient here, since the firewall
+only needs to constrain the container's own egress, not the host's.
+
 The config is standard Dev Containers spec and works with either engine. To use
 **Podman**, point the extension at it in VS Code settings (no repo change):
 

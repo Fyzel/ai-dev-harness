@@ -26,7 +26,16 @@ There is no application source package: this repo *is* the harness. The
 | `bin/build-image` | Build + optionally push the image to GHCR (uses `docker`). |
 | `bin/verify-firewall` | Build + run the verify image; exit code = firewall pass/fail. |
 | `bin/create-pr` | Generate a PR title/body via a local Ollama model, open the PR with `gh`. |
-| `.github/workflows/build-image.yml` | Build on PRs, push on `main` / tags. Third-party actions SHA-pinned. |
+| `.github/workflows/build-image.yml` | Build on PRs, push on `main` / `dev` / tags. `main` also gets a floating `:release` tag; `dev` gets a floating `:dev` tag instead of `:latest` (`:latest` is `main`-only). Third-party actions SHA-pinned. |
+
+## Versioning
+
+`bin/build-image` derives the image's version tag from git — no manual bump
+step. An exact `vX.Y.Z` tag on a clean tree produces `X.Y.Z`; otherwise it's
+`X.Y.Z-dev.<commits-since-tag>.<short-sha>` (`1.0.0` base if no tag exists yet;
+`.dirty` appended for a dirty tree). This is deliberately valid SemVer with no
+`+build` metadata — OCI/Docker tags don't allow `+`, so commit info lives in
+the prerelease field instead. Override with `bin/build-image --version X.Y.Z`.
 | `.github/workflows/lint-actions.yml` | `actionlint` (digest-pinned image) on workflow changes. |
 | `.github/dependabot.yml` | Weekly `github-actions` updates (bumps SHA pins + version comments). |
 | `ollama-dev.sample.json` | Sample Ollama backend list for `bin/create-pr` (copy to gitignored `ollama-dev.json`). |
@@ -44,6 +53,10 @@ There is no application source package: this repo *is* the harness. The
   - Firewall enforcement differs by path: VS Code overrides the image command, so
     the firewall runs via `postStartCommand`; a raw `docker`/`podman run` runs it
     via the image `ENTRYPOINT`. Keep both paths working when editing either.
+  - Podman is recommended over Docker on Windows, Linux, and macOS: it's
+    daemonless and rootless by default (no root-owned `dockerd` socket), unlike
+    Docker where that's an opt-in mode rather than the default. Keep this in
+    mind when writing docs/examples — lead with Podman, not Docker.
 
 ## Conventions
 

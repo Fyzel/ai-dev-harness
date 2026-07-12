@@ -1,12 +1,13 @@
 name: Build image
 
 # Build the devcontainer image and push versioned tags to GHCR.
-# - push to main / tags: build AND push (ghcr.io/<owner>/ai-dev-harness)
-# - pull requests:       build only (no registry credentials needed)
+# - push to main / dev / tags: build AND push (ghcr.io/<owner>/ai-dev-harness)
+# - pull requests:              build only (no registry credentials needed)
+# main also gets a floating ":release" tag; dev gets a floating ":dev" tag.
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     tags: ["v*"]
     paths:
       - ".devcontainer/**"
@@ -50,9 +51,21 @@ jobs:
       - name: Build (and push on non-PR)
         env:
           OWNER: ${{ github.repository_owner }}
+          BUILD_REF: ${{ github.ref }}
         run: |
+          EXTRA_TAG=""
+          NO_LATEST=""
+          case "$BUILD_REF" in
+            refs/heads/main) EXTRA_TAG="release" ;;
+            refs/heads/dev) EXTRA_TAG="dev"; NO_LATEST="1" ;;
+          esac
+
+          set -- --owner "$OWNER"
+          [ -n "$EXTRA_TAG" ] && set -- "$@" --extra-tag "$EXTRA_TAG"
+          [ -n "$NO_LATEST" ] && set -- "$@" --no-latest
+
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            sh bin/build-image --owner "$OWNER"
+            sh bin/build-image "$@"
           else
-            sh bin/build-image --owner "$OWNER" --push --no-login
+            sh bin/build-image "$@" --push --no-login
           fi
