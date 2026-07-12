@@ -82,13 +82,19 @@ bin/build-image                 # build local tags from .devcontainer/Dockerfile
 bin/build-image --push          # build + push the versioned tag and :latest to GHCR
 ```
 
+`bin/build-image` requires the Docker CLI regardless of which engine you run the
+container with — it shells out to `docker build`/`push`/`login` directly, with
+no Podman path. Podman users need `podman-docker`'s Docker-compat shim, or need
+to run this script from a machine that has Docker installed.
+
 The version tag is a SemVer string derived from git: an exact `vX.Y.Z` tag on a
 clean tree yields `X.Y.Z`; anything else yields `X.Y.Z-dev.<commits-since>.<sha>`
 (`.dirty` appended for a dirty tree), with `1.0.0` as the base if no tag exists
 yet. A dirty tree skips the `:latest` push.
-CI (`build-image.yml`) builds on every PR and pushes on merges to `main` / `dev` /
-tags. Merges to `main` also push a floating `:release` tag; merges to `dev` push
-a floating `:dev` tag instead of `:latest` (`bin/build-image --extra-tag dev
+CI (`build-image.yml`) builds on every PR and pushes the image on every push to
+`main` / `dev` or a `v*` tag (not only merges — direct pushes trigger it too).
+Pushes to `main` also push a floating `:release` tag; pushes to `dev` push a
+floating `:dev` tag instead of `:latest` (`bin/build-image --extra-tag dev
 --no-latest`) — `:latest` is reserved for `main`.
 Verify the firewall independently of a full container build with
 `bin/verify-firewall` (exit code 0 = egress rules enforce correctly).
