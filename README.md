@@ -105,7 +105,7 @@ covers every tag pointing at that digest. Verify a pulled image with:
 
 ```bash
 cosign verify \
-  --certificate-identity-regexp '^https://github\.com/fyzel/ai-dev-harness/\.github/workflows/build-image\.yml@refs/(heads/(main|dev)|tags/v.*)$' \
+  --certificate-identity-regexp '^https://github\.com/Fyzel/ai-dev-harness/\.github/workflows/build-image\.yml@refs/(heads/(main|dev)|tags/v.*)$' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com \
   ghcr.io/fyzel/ai-dev-harness:latest
 ```

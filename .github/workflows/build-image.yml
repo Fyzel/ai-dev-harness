@@ -113,6 +113,6 @@ jobs:
       - name: Verify signature
         run: |
           cosign verify \
-            --certificate-identity-regexp '^https://github\.com/fyzel/ai-dev-harness/\.github/workflows/build-image\.yml@refs/(heads/(main|dev)|tags/v.*)$' \
+            --certificate-identity-regexp '^https://github\.com/Fyzel/ai-dev-harness/\.github/workflows/build-image\.yml@refs/(heads/(main|dev)|tags/v.*)$' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             "${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}"
