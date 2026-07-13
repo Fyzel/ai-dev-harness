@@ -156,6 +156,9 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -E '^[0-9]{1,
 #     update.code.visualstudio.com - VS Code server bootstrap
 #     deb.debian.org               - Debian apt packages (runtime `apt-get install`)
 #     security.debian.org          - Debian apt security updates
+#     tuf-repo-cdn.sigstore.dev    - Sigstore TUF root of trust, for `cosign verify`
+#                                     (Fulcio/Rekor/CT keys; all content is itself
+#                                     signed and verified by the TUF client)
 #
 # CDN CAVEAT: deb.debian.org / security.debian.org are Fastly-fronted CDNs whose
 # A records rotate across many IPs. This script resolves them ONCE at firewall
@@ -172,7 +175,8 @@ for domain in \
     "vscode.blob.core.windows.net" \
     "update.code.visualstudio.com" \
     "deb.debian.org" \
-    "security.debian.org"; do
+    "security.debian.org" \
+    "tuf-repo-cdn.sigstore.dev"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
@@ -239,6 +243,14 @@ if ! curl --connect-timeout 5 https://api.github.com/zen >/dev/null 2>&1; then
     exit 1
 else
     echo "Firewall verification passed - able to reach https://api.github.com as expected"
+fi
+
+# Verify Sigstore TUF reachability, so `cosign verify` can refresh its trust root.
+if ! curl --connect-timeout 5 https://tuf-repo-cdn.sigstore.dev >/dev/null 2>&1; then
+    echo "ERROR: Firewall verification failed - unable to reach https://tuf-repo-cdn.sigstore.dev"
+    exit 1
+else
+    echo "Firewall verification passed - able to reach https://tuf-repo-cdn.sigstore.dev as expected"
 fi
 
 # Verify telemetry endpoints are BLOCKED (this is the point of this variant).

@@ -108,6 +108,7 @@ Allowed:
 | `downloads.claude.ai`                                                                          | Claude Code self-updater (release binaries + keys)  |
 | `marketplace.visualstudio.com`, `vscode.blob.core.windows.net`, `update.code.visualstudio.com` | VS Code server + extensions                         |
 | `deb.debian.org`, `security.debian.org`                                                        | Debian `apt` packages at runtime (CDN — see note)   |
+| `tuf-repo-cdn.sigstore.dev`                                                                     | Sigstore TUF root of trust, for `cosign verify` (Fulcio/Rekor/CT keys) |
 | Host gateway (`/32`), DNS to `resolv.conf` nameservers, loopback                               | Container plumbing (gateway only — no siblings, no blanket SSH) |
 
 ### Telemetry: blocked, two layers
