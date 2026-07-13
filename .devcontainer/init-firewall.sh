@@ -160,11 +160,13 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -E '^[0-9]{1,
 #                                     (Fulcio/Rekor/CT keys; all content is itself
 #                                     signed and verified by the TUF client)
 #
-# CDN CAVEAT: deb.debian.org / security.debian.org are Fastly-fronted CDNs whose
-# A records rotate across many IPs. This script resolves them ONCE at firewall
-# init and pins only those IPs. A later `apt-get` may be routed to a CDN IP not
-# in the set and fail; re-run this script (re-resolves) to refresh. This is the
-# trade-off for allowing runtime apt while keeping default-deny egress.
+# CDN CAVEAT: deb.debian.org / security.debian.org are Fastly-fronted CDNs, and
+# tuf-repo-cdn.sigstore.dev is similarly CDN-fronted (GCP), all with A records
+# that can rotate across many IPs. This script resolves them ONCE at firewall
+# init and pins only those IPs. A later `apt-get` or `cosign verify` may be
+# routed to a CDN IP not in the set and fail; re-run this script (re-resolves)
+# to refresh. This is the trade-off for allowing runtime apt/cosign while
+# keeping default-deny egress.
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
