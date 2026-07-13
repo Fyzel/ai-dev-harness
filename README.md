@@ -96,6 +96,20 @@ CI (`build-image.yml`) builds on every PR and pushes the image on every push to
 Pushes to `main` also push a floating `:release` tag; pushes to `dev` push a
 floating `:dev` tag instead of `:latest` (`bin/build-image --extra-tag dev
 --no-latest`) — `:latest` is reserved for `main`.
+
+Every image CI pushes is signed **keyless** with [cosign](https://docs.sigstore.dev/)
+against its registry digest, using the workflow run's GitHub OIDC identity —
+no private key is stored or rotated. The signature is logged to the public
+[Rekor](https://docs.sigstore.dev/logging/overview/) transparency log and
+covers every tag pointing at that digest. Verify a pulled image with:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/Fyzel/ai-dev-harness/\.github/workflows/build-image\.yml@refs/(heads/(main|dev)|tags/v.*)$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/fyzel/ai-dev-harness:latest
+```
+
 Verify the firewall independently of a full container build with
 `bin/verify-firewall` (exit code 0 = egress rules enforce correctly).
 

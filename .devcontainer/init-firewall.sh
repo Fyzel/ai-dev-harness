@@ -156,12 +156,17 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -E '^[0-9]{1,
 #     update.code.visualstudio.com - VS Code server bootstrap
 #     deb.debian.org               - Debian apt packages (runtime `apt-get install`)
 #     security.debian.org          - Debian apt security updates
+#     tuf-repo-cdn.sigstore.dev    - Sigstore TUF root of trust, for `cosign verify`
+#                                     (Fulcio/Rekor/CT keys; all content is itself
+#                                     signed and verified by the TUF client)
 #
-# CDN CAVEAT: deb.debian.org / security.debian.org are Fastly-fronted CDNs whose
-# A records rotate across many IPs. This script resolves them ONCE at firewall
-# init and pins only those IPs. A later `apt-get` may be routed to a CDN IP not
-# in the set and fail; re-run this script (re-resolves) to refresh. This is the
-# trade-off for allowing runtime apt while keeping default-deny egress.
+# CDN CAVEAT: deb.debian.org / security.debian.org are Fastly-fronted CDNs, and
+# tuf-repo-cdn.sigstore.dev is similarly CDN-fronted (GCP), all with A records
+# that can rotate across many IPs. This script resolves them ONCE at firewall
+# init and pins only those IPs. A later `apt-get` or `cosign verify` may be
+# routed to a CDN IP not in the set and fail; re-run this script (re-resolves)
+# to refresh. This is the trade-off for allowing runtime apt/cosign while
+# keeping default-deny egress.
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
@@ -172,7 +177,8 @@ for domain in \
     "vscode.blob.core.windows.net" \
     "update.code.visualstudio.com" \
     "deb.debian.org" \
-    "security.debian.org"; do
+    "security.debian.org" \
+    "tuf-repo-cdn.sigstore.dev"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
@@ -218,7 +224,12 @@ iptables -A OUTPUT -j REJECT --reject-with icmp-admin-prohibited
 
 echo "Firewall configuration complete"
 echo "Verifying firewall rules..."
-if curl --connect-timeout 5 https://example.com >/dev/null 2>&1; then
+# --connect-timeout only bounds the TCP/TLS handshake; a host that accepts the
+# connection but stalls mid-response would otherwise hang curl (and this
+# script's caller, the ENTRYPOINT/postStartCommand) indefinitely. --max-time
+# bounds the whole request so a stuck check fails fast instead of hanging
+# devcontainer startup.
+if curl --connect-timeout 5 --max-time 10 https://example.com >/dev/null 2>&1; then
     echo "ERROR: Firewall verification failed - was able to reach https://example.com"
     exit 1
 else
@@ -226,7 +237,7 @@ else
 fi
 
 # google.com is NOT on the allowlist, so egress to it must be denied.
-if curl --connect-timeout 5 https://google.com >/dev/null 2>&1; then
+if curl --connect-timeout 5 --max-time 10 https://google.com >/dev/null 2>&1; then
     echo "ERROR: Firewall verification failed - was able to reach https://google.com"
     exit 1
 else
@@ -234,16 +245,24 @@ else
 fi
 
 # Verify GitHub API access
-if ! curl --connect-timeout 5 https://api.github.com/zen >/dev/null 2>&1; then
+if ! curl --connect-timeout 5 --max-time 10 https://api.github.com/zen >/dev/null 2>&1; then
     echo "ERROR: Firewall verification failed - unable to reach https://api.github.com"
     exit 1
 else
     echo "Firewall verification passed - able to reach https://api.github.com as expected"
 fi
 
+# Verify Sigstore TUF reachability, so `cosign verify` can refresh its trust root.
+if ! curl --connect-timeout 5 --max-time 10 https://tuf-repo-cdn.sigstore.dev >/dev/null 2>&1; then
+    echo "ERROR: Firewall verification failed - unable to reach https://tuf-repo-cdn.sigstore.dev"
+    exit 1
+else
+    echo "Firewall verification passed - able to reach https://tuf-repo-cdn.sigstore.dev as expected"
+fi
+
 # Verify telemetry endpoints are BLOCKED (this is the point of this variant).
 for blocked in "sentry.io" "statsig.anthropic.com"; do
-    if curl --connect-timeout 5 "https://${blocked}" >/dev/null 2>&1; then
+    if curl --connect-timeout 5 --max-time 10 "https://${blocked}" >/dev/null 2>&1; then
         echo "ERROR: Firewall verification failed - telemetry host ${blocked} is reachable"
         exit 1
     else
