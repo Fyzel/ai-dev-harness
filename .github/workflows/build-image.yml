@@ -6,6 +6,11 @@ name: Build image
 # main also gets a floating ":release" tag; dev gets a floating ":dev" tag.
 # Pushed images are signed (keyless, via cosign + GitHub OIDC) by digest, so
 # the signature covers every tag that points at that digest.
+#
+# `build` (PR) and `publish` (push/tag/dispatch) are separate jobs so the
+# packages:write/id-token:write token used for pushing and signing is never
+# present in a job that also executes PR-supplied code (`sh bin/build-image`
+# runs code checked out from the PR branch).
 
 on:
   push:
@@ -28,6 +33,30 @@ concurrency:
 
 jobs:
   build:
+    # PR runs only confirm the Dockerfile builds; no registry credentials,
+    # no signing - see the split note above.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # Full history + tags so `git describe` yields a real version.
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+
+      - name: Build
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: sh bin/build-image --owner "$OWNER"
+
+  publish:
+    # Real pushes (main / dev / tags / manual) build, push, and sign. Kept in
+    # its own job, separate from `build`, per the split note above.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -45,16 +74,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
-      # Only real pushes (main / tags / manual) publish; PRs build only.
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@af1e73f918a031802d376d3c8bbc3fe56130a9b0 # v4.4.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build (and push on non-PR)
+      - name: Build and push
         id: build
         env:
           OWNER: ${{ github.repository_owner }}
@@ -72,28 +99,22 @@ jobs:
           [ -n "$EXTRA_TAG" ] && set -- "$@" --extra-tag "$EXTRA_TAG"
           [ -n "$NO_LATEST" ] && set -- "$@" --no-latest
 
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            sh bin/build-image "$@"
-          else
-            sh bin/build-image "$@" --push --no-login
-          fi
+          sh bin/build-image "$@" --push --no-login
 
       # Keyless: cosign mints a short-lived cert off this job's OIDC token
       # (no private key to store/rotate) and logs the signature to the public
-      # Rekor transparency log. Only real pushes have a digest to sign.
+      # Rekor transparency log.
       - name: Install cosign
-        if: github.event_name != 'pull_request'
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
       - name: Sign image
-        if: github.event_name != 'pull_request'
         run: cosign sign --yes "${{ steps.build.outputs.image }}@${{ steps.build.outputs.digest }}"
 
-  # Self-test: confirm the signature `build` just produced actually verifies,
-  # as an independent job with only registry-read access (no signing
-  # credentials) - the same check consumers run per the README.
+  # Self-test: confirm the signature `publish` just produced actually
+  # verifies, as an independent job with only registry-read access (no
+  # signing credentials) - the same check consumers run per the README.
   verify-signature:
-    needs: build
+    needs: publish
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -115,4 +136,4 @@ jobs:
           cosign verify \
             --certificate-identity-regexp '^https://github\.com/Fyzel/ai-dev-harness/\.github/workflows/build-image\.yml@refs/(heads/(main|dev)|tags/v.*)$' \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
-            "${{ needs.build.outputs.image }}@${{ needs.build.outputs.digest }}"
+            "${{ needs.publish.outputs.image }}@${{ needs.publish.outputs.digest }}"
