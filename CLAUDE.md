@@ -26,7 +26,7 @@ There is no application source package: this repo *is* the harness. The
 | `bin/build-image` | Build + optionally push the image to GHCR (uses `docker`). |
 | `bin/verify-firewall` | Build + run the verify image; exit code = firewall pass/fail. |
 | `bin/create-pr` | Generate a PR title/body via a local Ollama model, open the PR with `gh`. |
-| `.github/workflows/build-image.yml` | Build on PRs, push on `main` / `dev` / tags. `main` also gets a floating `:release` tag; `dev` gets a floating `:dev` tag instead of `:latest` (`:latest` is `main`-only). Third-party actions SHA-pinned. |
+| `.github/workflows/build-image.yml` | Build on PRs, push on `main` / `dev` / tags. `main` also gets a floating `:release` tag; `dev` gets a floating `:dev` tag instead of `:latest` (`:latest` is `main`-only). Pushed images are cosign-signed keyless (GitHub OIDC) by digest. Third-party actions SHA-pinned. |
 | `.github/workflows/lint-actions.yml` | `actionlint` (digest-pinned image) on workflow changes. |
 | `.github/dependabot.yml` | Weekly `github-actions` updates (bumps SHA pins + version comments). |
 | `ollama-dev.sample.json` | Sample Ollama backend list for `bin/create-pr` (copy to gitignored `ollama-dev.json`). |

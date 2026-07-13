@@ -10,6 +10,10 @@
 #                                            via --version
 #   <registry>/<owner>/<name>:latest        skipped on a dirty tree, or with --no-latest
 #   <registry>/<owner>/<name>:<extra-tag>   optional, via --extra-tag (skipped on a dirty tree too)
+#
+# On --push, also resolves the pushed registry digest and, if $GITHUB_OUTPUT
+# is set, writes `image=<registry>/<owner>/<name>` and `digest=sha256:...` to
+# it - CI uses these to cosign-sign the image by digest.
 
 set -eu
 
@@ -215,6 +219,18 @@ fi
 
 echo "Pushing $IMAGE_VERSIONED"
 docker push "$IMAGE_VERSIONED"
+
+# Resolve the registry digest of what was just pushed (queried from the
+# registry via buildx, not local state) so callers - namely CI, to sign the
+# image with cosign - can pin to content rather than a mutable tag.
+DIGEST=$(docker buildx imagetools inspect "$IMAGE_VERSIONED" | awk '/^Digest:/{print $2}')
+if [ -n "$DIGEST" ]; then
+  echo "Digest: $DIGEST"
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "image=$IMAGE_BASE" >> "$GITHUB_OUTPUT"
+    echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+  fi
+fi
 
 if [ -n "$IMAGE_LATEST" ]; then
   if [ -n "$DIRTY" ]; then
