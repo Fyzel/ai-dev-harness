@@ -44,12 +44,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # cosign, pinned + checksummed, for manual verify testing (see usage note above).
-# linux-amd64 only — this image isn't built multi-arch, so an arm64 host (e.g.
-# Apple Silicon without Rosetta emulation) would need a matching cosign asset.
+# TARGETARCH (set automatically by buildx) picks the matching release asset,
+# so this also works on an arm64 host (e.g. Apple Silicon) instead of pulling
+# an amd64 binary that would fail with "exec format error" on a native build.
 ARG COSIGN_VERSION=3.1.1
-RUN curl -fsSL -o /usr/local/bin/cosign \
-      "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64" \
-  && echo "ae1ecd212663f3693ad9edf8b1a183900c9a52d3155ba6e354237f9a0f6463fc  /usr/local/bin/cosign" | sha256sum -c - \
+ARG TARGETARCH
+RUN case "$TARGETARCH" in \
+      amd64) COSIGN_SHA256="ae1ecd212663f3693ad9edf8b1a183900c9a52d3155ba6e354237f9a0f6463fc" ;; \
+      arm64) COSIGN_SHA256="2ec865872e331c32fd12b08dae15332d3f92c0aa029219589684a4903ca85d11" ;; \
+      *) echo "Unsupported TARGETARCH: $TARGETARCH" >&2; exit 1 ;; \
+    esac \
+  && curl -fsSL -o /usr/local/bin/cosign \
+       "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-${TARGETARCH}" \
+  && echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum -c - \
   && chmod +x /usr/local/bin/cosign
 
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
