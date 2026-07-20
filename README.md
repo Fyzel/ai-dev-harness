@@ -26,8 +26,9 @@ Claude Code runs as the non-root `node` user with:
   down. Telemetry endpoints are deliberately excluded.
 - **Telemetry off at the source** — `DISABLE_*` env vars enforced at highest
   precedence via `managed-settings.json`, so they can't be re-enabled from inside.
-- **Persistent authentication** — `~/.claude` (`CLAUDE_CONFIG_DIR`) lives on a
-  named volume, so your login survives rebuilds and `--rm` runs.
+- **Persistent authentication** — `~/.claude` (`CLAUDE_CONFIG_DIR`) and
+  `~/.config/gh` (`GH_CONFIG_DIR`, for `gh auth login`) each live on a named
+  volume, so your login survives rebuilds and `--rm` runs.
 - **Firewall enforced on every start** — an `ENTRYPOINT` programs the firewall
   before running your command (fail-closed), so egress is locked whether launched
   via the dev container or a raw `podman`/`docker run`. Requires `NET_ADMIN` +
@@ -62,18 +63,40 @@ generally unnecessary there; add it to the mount only if you hit permission erro
 
 ### Run it — podman / docker directly
 
+**Podman** (recommended — see above):
+
 ```bash
 podman run --rm -it \
   --cap-add=NET_ADMIN --cap-add=NET_RAW \
   -v claude-code-config:/home/node/.claude \
+  -v gh-config:/home/node/.config/gh \
   -v "$PWD:/workspace:Z" \
   ghcr.io/fyzel/ai-dev-harness:latest
 ```
 
+**Docker** — identical invocation, just swap the binary (drop `:Z` if your
+platform's Docker doesn't need SELinux relabeling, e.g. Docker Desktop on
+Windows/macOS):
+
+```bash
+docker run --rm -it \
+  --cap-add=NET_ADMIN --cap-add=NET_RAW \
+  -v claude-code-config:/home/node/.claude \
+  -v gh-config:/home/node/.config/gh \
+  -v "$PWD:/workspace:Z" \
+  ghcr.io/fyzel/ai-dev-harness:latest
+```
+
+`$PWD:/workspace` bind-mounts your current host directory — the repo you want
+Claude Code to work on — to `/workspace` inside the container, matching
+`workspaceFolder` in the dev container config. Run this command from that repo's
+root (`cd` there first); a container with nothing mounted at `/workspace` has no
+code to work on.
+
 The entrypoint programs the firewall, then drops you into bash as `node`. The
-named `claude-code-config` volume persists your Claude Code login across runs
-(it survives `--rm`). To run **without** the firewall (debugging only), add
-`--entrypoint /bin/bash`.
+named `claude-code-config` and `gh-config` volumes persist your Claude Code
+and `gh` logins across runs (they survive `--rm`). To run **without** the
+firewall (debugging only), add `--entrypoint /bin/bash`.
 
 ## Building the image
 

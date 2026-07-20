@@ -51,9 +51,16 @@ ENV DEVCONTAINER=true
 # persistent volume at this path to keep the login across runs.
 ENV CLAUDE_CONFIG_DIR=/home/node/.claude
 
-# Create workspace and config directories and set permissions
-RUN mkdir -p /workspace /home/node/.claude && \
-  chown -R node:node /workspace /home/node/.claude
+# Same reasoning for `gh`: pin its config/auth dir so a mounted volume survives
+# rebuilds instead of `gh auth login` being lost every run (see issue #35).
+ENV GH_CONFIG_DIR=/home/node/.config/gh
+
+# Create workspace and config directories and set permissions.
+# 0700 on the auth dirs: they hold OAuth/PAT tokens, so keep them unreadable to
+# anyone but the node user even though the container is single-tenant.
+RUN mkdir -p /workspace /home/node/.claude /home/node/.config/gh && \
+  chown -R node:node /workspace /home/node/.claude /home/node/.config/gh && \
+  chmod 0700 /home/node/.claude /home/node/.config/gh
 
 WORKDIR /workspace
 

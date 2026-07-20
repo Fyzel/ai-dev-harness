@@ -73,21 +73,35 @@ verbosely to the dev-container startup log.)
 
 ## Persistent authentication
 
-The container home directory is discarded on rebuild. Two named volumes preserve state:
+The container home directory is discarded on rebuild. Three named volumes preserve state:
 
-| Volume                                      | Mount                | Holds                                      |
-|---------------------------------------------|----------------------|--------------------------------------------|
-| `claude-code-config-${devcontainerId}`      | `/home/node/.claude` | Auth token, user settings, session history |
-| `claude-code-bashhistory-${devcontainerId}` | `/commandhistory`    | Shell history                              |
+| Volume                                      | Mount                    | Holds                                      |
+|---------------------------------------------|--------------------------|--------------------------------------------|
+| `claude-code-config-${devcontainerId}`      | `/home/node/.claude`     | Auth token, user settings, session history |
+| `gh-config-${devcontainerId}`               | `/home/node/.config/gh`  | `gh` CLI auth token (`gh auth login`)      |
+| `claude-code-bashhistory-${devcontainerId}` | `/commandhistory`        | Shell history                              |
 
-`CLAUDE_CONFIG_DIR` points Claude Code at `/home/node/.claude`. `${devcontainerId}`
-scopes the volumes to **this project** — other repos get their own auth/state, not a
-shared one. Sign in once; rebuilds keep you signed in.
+`CLAUDE_CONFIG_DIR` / `GH_CONFIG_DIR` point Claude Code and `gh` at those fixed
+dirs, so behavior is identical whether the image is launched via the dev
+container or a raw `podman`/`docker run`. `${devcontainerId}` scopes the
+volumes to **this project** — other repos get their own auth/state, not a
+shared one. Sign in once (`claude` / `gh auth login`); rebuilds keep you
+signed in.
+
+**Where the token lives:** `gh` has no keyring daemon to talk to in a headless
+container, so `gh auth login` falls back to storing the token in plain text at
+`$GH_CONFIG_DIR/hosts.yml` (same tradeoff Claude Code's own token already
+accepts under `.claude`). That directory is created `chmod 0700`, owned by
+`node`, and lives inside a Docker/Podman-managed volume — not a bind mount —
+so it isn't a plain file sitting in the repo or a host directory an
+unprivileged host user can browse to. Anyone with root on the host (or the
+Docker/Podman socket) can still read it; this is defense against casual
+host-level exposure, not against a compromised or root-level host.
 
 To wipe persisted auth (e.g. sign out fully), remove the volumes on the host:
 
 ```bash
-docker volume ls | grep claude-code-config
+docker volume ls | grep -E 'claude-code-config|gh-config'
 docker volume rm <volume-name>
 ```
 
