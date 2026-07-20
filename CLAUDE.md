@@ -7,7 +7,8 @@ Guidance for Claude Code working in this repository.
 `ai-dev-harness` — a security-hardened container for running Claude Code, plus the
 tooling to build, verify, and publish it. The image runs Claude Code as the
 non-root `node` user behind a default-deny egress firewall, with blocked
-telemetry and persistent auth, and is published to `ghcr.io/fyzel/ai-dev-harness`.
+telemetry and persistent auth (Claude Code login + `gh` CLI login, each on their
+own named volume), and is published to `ghcr.io/fyzel/ai-dev-harness`.
 
 There is no application source package: this repo *is* the harness. The
 "product" is the container image and the POSIX shell tooling around it.
