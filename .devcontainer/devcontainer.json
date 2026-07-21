@@ -34,16 +34,19 @@
 
   // Persist authentication and settings across rebuilds.
   // The named volumes below survive "Rebuild Container", so ~/.claude (auth token,
-  // user settings, session history) and shell history are not discarded.
+  // user settings, session history), ~/.config/gh (gh CLI auth token), and shell
+  // history are not discarded.
   // ${devcontainerId} scopes the volumes to THIS project rather than sharing across repos.
   "mounts": [
     "source=claude-code-config-${devcontainerId},target=/home/node/.claude,type=volume",
+    "source=gh-config-${devcontainerId},target=/home/node/.config/gh,type=volume",
     "source=claude-code-bashhistory-${devcontainerId},target=/commandhistory,type=volume"
   ],
 
   "containerEnv": {
     "NODE_OPTIONS": "--max-old-space-size=4096",
     "CLAUDE_CONFIG_DIR": "/home/node/.claude",
+    "GH_CONFIG_DIR": "/home/node/.config/gh",
 
     // --- Telemetry / non-essential traffic opt-out (defense in depth alongside the firewall) ---
     // Umbrella switch: disables metrics, error reporting, feedback, and session surveys.
