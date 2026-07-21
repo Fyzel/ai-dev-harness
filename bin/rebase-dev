@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+#
+# rebase-dev-on-main.sh
+#
+# Safely rebases the 'dev' branch onto 'main' via a throwaway branch,
+# then pushes that branch so a PR can be opened. This avoids pushing
+# directly to protected branches (e.g. GitHub rulesets requiring PRs).
+#
+# Usage:
+#   ./rebase-dev-on-main.sh [options]
+#
+# Options:
+#   -m, --main <branch>     Source branch to rebase onto (default: main)
+#   -d, --dev <branch>      Branch being rebased (default: dev)
+#   -r, --remote <name>     Remote name (default: origin)
+#   -b, --branch <name>     Name for the new rebase branch
+#                            (default: <dev>-rebase-<timestamp>)
+#   -n, --no-push           Perform the rebase locally but don't push
+#   -h, --help              Show this help text
+#
+# Exit codes:
+#   0  success
+#   1  usage / environment error
+#   2  rebase conflict (left in-progress for manual resolution)
+#   3  push failure
+#
+set -euo pipefail
+
+# ── Defaults ──────────────────────────────────────────────────────
+MAIN_BRANCH="main"
+DEV_BRANCH="dev"
+REMOTE="origin"
+NEW_BRANCH=""
+DO_PUSH=true
+
+# ── Logging helpers ───────────────────────────────────────────────
+log()  { printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"; }
+err()  { printf '[%s] ERROR: %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" >&2; }
+die()  { err "$*"; exit 1; }
+
+usage() {
+    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+# ── Argument parsing ──────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -m|--main)   MAIN_BRANCH="$2"; shift 2 ;;
+        -d|--dev)    DEV_BRANCH="$2"; shift 2 ;;
+        -r|--remote) REMOTE="$2"; shift 2 ;;
+        -b|--branch) NEW_BRANCH="$2"; shift 2 ;;
+        -n|--no-push) DO_PUSH=false; shift ;;
+        -h|--help)   usage; exit 0 ;;
+        *) die "Unknown argument: $1 (use --help for usage)" ;;
+    esac
+done
+
+[[ -z "$NEW_BRANCH" ]] && NEW_BRANCH="${DEV_BRANCH}-rebase-$(date '+%Y%m%d-%H%M%S')"
+
+# ── Pre-flight checks ─────────────────────────────────────────────
+command -v git >/dev/null 2>&1 || die "git is not installed or not on PATH"
+
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "Not inside a git repository"
+
+if ! git diff --quiet || ! git diff --cached --quiet; then
+    die "Working tree has uncommitted changes. Commit, stash, or discard them first."
+fi
+
+if git show-ref --verify --quiet "refs/heads/${NEW_BRANCH}"; then
+    die "Local branch '${NEW_BRANCH}' already exists. Pick a different --branch name or delete it."
+fi
+
+log "Fetching latest refs from '${REMOTE}'..."
+git fetch "${REMOTE}" --prune
+
+git show-ref --verify --quiet "refs/remotes/${REMOTE}/${MAIN_BRANCH}" \
+    || die "Remote branch '${REMOTE}/${MAIN_BRANCH}' not found"
+git show-ref --verify --quiet "refs/remotes/${REMOTE}/${DEV_BRANCH}" \
+    || die "Remote branch '${REMOTE}/${DEV_BRANCH}' not found"
+
+# ── Create the rebase branch from dev ─────────────────────────────
+log "Creating branch '${NEW_BRANCH}' from '${REMOTE}/${DEV_BRANCH}'..."
+git checkout -b "${NEW_BRANCH}" "${REMOTE}/${DEV_BRANCH}"
+
+# ── Rebase onto main ───────────────────────────────────────────────
+log "Rebasing '${NEW_BRANCH}' onto '${REMOTE}/${MAIN_BRANCH}'..."
+if ! git rebase "${REMOTE}/${MAIN_BRANCH}"; then
+    err "Rebase stopped due to conflicts."
+    err "Resolve conflicts in the listed files, then run:"
+    err "  git add <resolved files>"
+    err "  git rebase --continue"
+    err "Or abandon the attempt with:"
+    err "  git rebase --abort"
+    err "Branch '${NEW_BRANCH}' is left checked out with the rebase in progress."
+    exit 2
+fi
+log "Rebase completed cleanly."
+
+# ── Preview what will be included ─────────────────────────────────
+log "Commits that will be introduced to '${DEV_BRANCH}' via PR:"
+git log --oneline "${REMOTE}/${DEV_BRANCH}..${NEW_BRANCH}" || true
+
+# ── Push ────────────────────────────────────────────────────────
+if [[ "${DO_PUSH}" == true ]]; then
+    log "Pushing '${NEW_BRANCH}' to '${REMOTE}'..."
+    if ! git push "${REMOTE}" "${NEW_BRANCH}"; then
+        err "Push failed. If '${NEW_BRANCH}' already exists on the remote with"
+        err "different history, you may need: git push --force-with-lease ${REMOTE} ${NEW_BRANCH}"
+        exit 3
+    fi
+    log "Pushed successfully."
+    log "Open a pull request: ${NEW_BRANCH} -> ${DEV_BRANCH}"
+else
+    log "Skipping push (--no-push set). Branch '${NEW_BRANCH}' is ready locally."
+fi
+
+log "Done."
+
