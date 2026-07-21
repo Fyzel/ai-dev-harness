@@ -98,7 +98,8 @@ unprivileged host user can browse to. Anyone with root on the host (or the
 Docker/Podman socket) can still read it; this is defense against casual
 host-level exposure, not against a compromised or root-level host.
 
-To wipe persisted auth (e.g. sign out fully), remove the volumes on the host:
+To wipe persisted auth (e.g. sign out fully), remove the volumes on the host
+(swap `docker` for `podman` if that's your engine — same subcommands):
 
 ```bash
 docker volume ls | grep -E 'claude-code-config|gh-config'
