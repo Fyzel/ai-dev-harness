@@ -63,27 +63,33 @@ generally unnecessary there; add it to the mount only if you hit permission erro
 
 ### Run it — podman / docker directly
 
+Volume names below are scoped to the current repo directory (`$(basename "$PWD")`)
+so each project gets its own auth/state instead of sharing one global login —
+adjust the prefix if you'd rather name them yourself.
+
 **Podman** (recommended — see above):
 
 ```bash
+project=$(basename "$PWD")
 podman run --rm -it \
   --cap-add=NET_ADMIN --cap-add=NET_RAW \
-  -v claude-code-config:/home/node/.claude \
-  -v gh-config:/home/node/.config/gh \
+  -v "${project}-claude-code-config:/home/node/.claude" \
+  -v "${project}-gh-config:/home/node/.config/gh" \
   -v "$PWD:/workspace:Z" \
   ghcr.io/fyzel/ai-dev-harness:latest
 ```
 
-**Docker** — identical invocation, just swap the binary (drop `:Z` if your
-platform's Docker doesn't need SELinux relabeling, e.g. Docker Desktop on
-Windows/macOS):
+**Docker** — identical invocation, just swap the binary (drop `:Z` from the
+workspace mount if your platform's Docker doesn't need SELinux relabeling, e.g.
+Docker Desktop on Windows/macOS):
 
 ```bash
+project=$(basename "$PWD")
 docker run --rm -it \
   --cap-add=NET_ADMIN --cap-add=NET_RAW \
-  -v claude-code-config:/home/node/.claude \
-  -v gh-config:/home/node/.config/gh \
-  -v "$PWD:/workspace:Z" \
+  -v "${project}-claude-code-config:/home/node/.claude" \
+  -v "${project}-gh-config:/home/node/.config/gh" \
+  -v "$PWD:/workspace" \
   ghcr.io/fyzel/ai-dev-harness:latest
 ```
 
@@ -94,9 +100,9 @@ root (`cd` there first); a container with nothing mounted at `/workspace` has no
 code to work on.
 
 The entrypoint programs the firewall, then drops you into bash as `node`. The
-named `claude-code-config` and `gh-config` volumes persist your Claude Code
-and `gh` logins across runs (they survive `--rm`). To run **without** the
-firewall (debugging only), add `--entrypoint /bin/bash`.
+named volumes mounted above persist your Claude Code and `gh` logins across
+runs (they survive `--rm`). To run **without** the firewall (debugging only),
+add `--entrypoint /bin/bash`.
 
 ## Building the image
 
