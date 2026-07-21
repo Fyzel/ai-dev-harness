@@ -45,4 +45,10 @@ if [ -n "${fw_log:-}" ]; then
     rm -f "$fw_log"
 fi
 
+# The workspace is bind-mounted and typically owned by a host uid that differs
+# from `node`'s, which trips git's ownership check (CVE-2022-24765) on every
+# git/gh command. Mark it safe explicitly (not a `*` wildcard) so the check
+# still applies to any other repo path inside the container.
+git config --global --add safe.directory /workspace
+
 exec "$@"
