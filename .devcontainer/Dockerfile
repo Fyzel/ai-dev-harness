@@ -32,6 +32,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Pinned tarball + per-arch sha256 checked against nodejs.org's published
 # SHASUMS256.txt, matching the checksum-pin pattern already used for
 # git-delta/cosign in this repo rather than adding a NodeSource apt trust root.
+# Bumping NODE_VERSION requires updating both sha256 checksums below it to
+# match — they are hardcoded per-architecture, not derived from the version.
 ARG NODE_VERSION=24.18.0
 RUN set -eu; \
   case "$(dpkg --print-architecture)" in \
@@ -43,14 +45,15 @@ RUN set -eu; \
     "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz"; \
   echo "${NODE_SHA256}  /tmp/node.tar.gz" | sha256sum -c -; \
   tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 \
-    --no-same-owner --exclude='*.md' --exclude='LICENSE'; \
+    --no-same-owner --exclude='*.md'; \
   rm /tmp/node.tar.gz; \
   node --version && npm --version
 
 # Create the node user (unlike node:22, this base doesn't ship with it).
 # Remove ubuntu user (uid 1000) and explicitly create node at uid 1000 to match
 # what node:22 had — this ensures volume mounts expecting uid 1000 work correctly.
-RUN userdel -r ubuntu && groupadd -g 1000 node && useradd -m -u 1000 -g 1000 -s /bin/bash node
+RUN userdel -r ubuntu && groupadd -g 1000 node && useradd -m -u 1000 -g 1000 -s /bin/bash node \
+  && [ "$(id -u node)" = 1000 ] && [ "$(id -g node)" = 1000 ]
 
 # Ensure default node user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global && \
@@ -93,9 +96,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
   wget "https://github.com/dandavison/delta/releases/download/${GIT_DELTA_VERSION}/git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
   dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
   rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
-
-# Make bash the node user's login shell (base image may leave it as /bin/sh).
-RUN usermod -s /bin/bash node
 
 # Set up non-root user
 USER node

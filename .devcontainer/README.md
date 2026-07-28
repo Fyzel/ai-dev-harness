@@ -180,3 +180,9 @@ Notes:
 - `*.sh` is pinned to LF via `.gitattributes`; CRLF checkouts break the shebang in Linux.
 - Per the upstream warning: a dev container is a strong boundary, not absolute. Use it
   with trusted repositories, and avoid mounting host secrets (`~/.ssh`, cloud creds).
+- **Breaking change:** the base image moved from `node:22` (Debian, via
+  `buildpack-deps`) to `ubuntu:26.04`, which no longer implicitly ships a build
+  toolchain. `npm install`/`npm ci` on a package with a native addon (node-gyp) will
+  fail with `gyp ERR! find Python` until you `sudo apt-get install -y build-essential
+  python3` inside the running container — the firewall allows this, since
+  `archive.ubuntu.com`/`security.ubuntu.com`/`ports.ubuntu.com` are allowlisted.
