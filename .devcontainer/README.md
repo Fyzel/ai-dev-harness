@@ -11,7 +11,7 @@ modified so telemetry/error-reporting endpoints are blocked rather than allowed.
 | File                    | Role                                                                                                     |
 |-------------------------|----------------------------------------------------------------------------------------------------------|
 | `devcontainer.json`     | Volume mounts, `NET_ADMIN`/`NET_RAW` capabilities, telemetry-opt-out env, runs the firewall on start     |
-| `Dockerfile`            | `node:22` base, dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings + entrypoint wiring |
+| `Dockerfile`            | `ubuntu:26.04` base + Node 24 (pinned tarball), dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings + entrypoint wiring |
 | `init-firewall.sh`      | Programs iptables/ipset: default-DROP egress, allowlist only                                             |
 | `entrypoint.sh`         | Runs `init-firewall.sh` on every container start then execs the command (fail-closed) — enforces egress on a raw `docker`/`podman run`, not only the dev container |
 | `managed-settings.json` | Telemetry opt-out at highest settings precedence (cannot be re-enabled from inside the container)        |
@@ -122,7 +122,7 @@ Allowed:
 | `platform.claude.com`                                                                          | Anthropic Console sign-in                           |
 | `downloads.claude.ai`                                                                          | Claude Code self-updater (release binaries + keys)  |
 | `marketplace.visualstudio.com`, `vscode.blob.core.windows.net`, `update.code.visualstudio.com` | VS Code server + extensions                         |
-| `deb.debian.org`, `security.debian.org`                                                        | Debian `apt` packages at runtime (CDN — see note)   |
+| `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`                                | Ubuntu `apt` packages at runtime (CDN — see note)   |
 | `tuf-repo-cdn.sigstore.dev`                                                                     | Sigstore TUF root of trust, for `cosign verify` (Fulcio/Rekor/CT keys) |
 | Host gateway (`/32`), DNS to `resolv.conf` nameservers, loopback                               | Container plumbing (gateway only — no siblings, no blanket SSH) |
 
