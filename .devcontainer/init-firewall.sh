@@ -154,19 +154,23 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -E '^[0-9]{1,
 #     marketplace.visualstudio.com - VS Code extension marketplace
 #     vscode.blob.core.windows.net - VS Code extension downloads
 #     update.code.visualstudio.com - VS Code server bootstrap
-#     deb.debian.org               - Debian apt packages (runtime `apt-get install`)
-#     security.debian.org          - Debian apt security updates
+#     archive.ubuntu.com           - Ubuntu apt packages (runtime `apt-get install`)
+#     security.ubuntu.com          - Ubuntu apt security updates
+#     ports.ubuntu.com             - Ubuntu apt packages/security for arm64 (Ubuntu
+#                                     splits mirror hosting by architecture; this repo
+#                                     builds both amd64 and arm64 images — see
+#                                     verify-firewall.Dockerfile's TARGETARCH handling)
 #     tuf-repo-cdn.sigstore.dev    - Sigstore TUF root of trust, for `cosign verify`
 #                                     (Fulcio/Rekor/CT keys; all content is itself
 #                                     signed and verified by the TUF client)
 #
-# CDN CAVEAT: deb.debian.org / security.debian.org are Fastly-fronted CDNs, and
-# tuf-repo-cdn.sigstore.dev is similarly CDN-fronted (GCP), all with A records
-# that can rotate across many IPs. This script resolves them ONCE at firewall
-# init and pins only those IPs. A later `apt-get` or `cosign verify` may be
-# routed to a CDN IP not in the set and fail; re-run this script (re-resolves)
-# to refresh. This is the trade-off for allowing runtime apt/cosign while
-# keeping default-deny egress.
+# CDN CAVEAT: archive.ubuntu.com / security.ubuntu.com / ports.ubuntu.com are
+# geo-DNS mirror redirectors, and tuf-repo-cdn.sigstore.dev is CDN-fronted
+# (GCP) — all with A records that can rotate across many IPs. This script
+# resolves them ONCE at firewall init and pins only those IPs. A later
+# `apt-get` or `cosign verify` may be routed to an IP not in the set and fail;
+# re-run this script (re-resolves) to refresh. This is the trade-off for
+# allowing runtime apt/cosign while keeping default-deny egress.
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
@@ -176,8 +180,9 @@ for domain in \
     "marketplace.visualstudio.com" \
     "vscode.blob.core.windows.net" \
     "update.code.visualstudio.com" \
-    "deb.debian.org" \
-    "security.debian.org" \
+    "archive.ubuntu.com" \
+    "security.ubuntu.com" \
+    "ports.ubuntu.com" \
     "tuf-repo-cdn.sigstore.dev"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
