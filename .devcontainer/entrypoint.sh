@@ -53,6 +53,6 @@ fi
 # ~/.gitconfig persists across `stop`/`start` of the same container, and `--add`
 # doesn't dedupe, so guard against appending the same entry on every restart.
 git config --global --get-all safe.directory 2>/dev/null | grep -qx /workspace ||
-    git config --global --add safe.directory /workspace
+    git config --global --add safe.directory /workspace 2>/dev/null || true
 
 exec "$@"
