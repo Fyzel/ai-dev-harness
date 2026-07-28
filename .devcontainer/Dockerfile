@@ -47,8 +47,10 @@ RUN set -eu; \
   rm /tmp/node.tar.gz; \
   node --version && npm --version
 
-# Create the node user (unlike node:22, this base doesn't ship with it)
-RUN useradd -m -s /bin/bash node
+# Create the node user (unlike node:22, this base doesn't ship with it).
+# Remove ubuntu user (uid 1000) and explicitly create node at uid 1000 to match
+# what node:22 had — this ensures volume mounts expecting uid 1000 work correctly.
+RUN userdel -r ubuntu && groupadd -g 1000 node && useradd -m -u 1000 -g 1000 -s /bin/bash node
 
 # Ensure default node user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global && \
