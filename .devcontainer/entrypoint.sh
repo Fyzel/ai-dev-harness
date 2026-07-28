@@ -49,6 +49,10 @@ fi
 # from `node`'s, which trips git's ownership check (CVE-2022-24765) on every
 # git/gh command. Mark it safe explicitly (not a `*` wildcard) so the check
 # still applies to any other repo path inside the container.
-git config --global --add safe.directory /workspace
+#
+# ~/.gitconfig persists across `stop`/`start` of the same container, and `--add`
+# doesn't dedupe, so guard against appending the same entry on every restart.
+git config --global --get-all safe.directory 2>/dev/null | grep -qx /workspace ||
+    git config --global --add safe.directory /workspace
 
 exec "$@"
