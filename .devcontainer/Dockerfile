@@ -1,4 +1,4 @@
-FROM node:22
+FROM ubuntu:26.04
 
 ARG TZ
 ENV TZ="$TZ"
@@ -27,6 +27,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   jq \
   vim \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js explicitly — unlike node:22, this base doesn't ship it.
+# Pinned tarball + per-arch sha256 checked against nodejs.org's published
+# SHASUMS256.txt, matching the checksum-pin pattern already used for
+# git-delta/cosign in this repo rather than adding a NodeSource apt trust root.
+ARG NODE_VERSION=24.18.0
+RUN set -eu; \
+  case "$(dpkg --print-architecture)" in \
+    amd64) NODE_ARCH="x64"; NODE_SHA256="783130984963db7ba9cbd01089eaf2c2efb055c7c1693c943174b967b3050cb8" ;; \
+    arm64) NODE_ARCH="arm64"; NODE_SHA256="6b4484c2190274175df9aa8f28e2d758a819cb1c1fe6ab481e2f95b463ab8508" ;; \
+    *) echo "Unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1 ;; \
+  esac; \
+  curl -fsSL -o /tmp/node.tar.gz \
+    "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.gz"; \
+  echo "${NODE_SHA256}  /tmp/node.tar.gz" | sha256sum -c -; \
+  tar -xzf /tmp/node.tar.gz -C /usr/local --strip-components=1 \
+    --no-same-owner --exclude='*.md' --exclude='LICENSE'; \
+  rm /tmp/node.tar.gz; \
+  node --version && npm --version
+
+# Create the node user (unlike node:22, this base doesn't ship with it)
+RUN useradd -m -s /bin/bash node
 
 # Ensure default node user has access to /usr/local/share
 RUN mkdir -p /usr/local/share/npm-global && \
