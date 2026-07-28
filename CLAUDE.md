@@ -17,7 +17,7 @@ There is no application source package: this repo *is* the harness. The
 
 | Path | Role |
 |------|------|
-| `.devcontainer/Dockerfile` | `node:22` base + dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings wiring, entrypoint. |
+| `.devcontainer/Dockerfile` | `ubuntu:26.04` base + Node 24 (pinned tarball) + dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings wiring, entrypoint. |
 | `.devcontainer/init-firewall.sh` | Programs iptables/ipset: default-DROP egress, ipset allowlist, DNS only to the container's `resolv.conf` nameservers, host gateway `/32`, IPv6 lockdown. Self-verifies (telemetry blocked, GitHub reachable) and exits non-zero on failure. |
 | `.devcontainer/entrypoint.sh` | Runs the firewall on every container start, then `exec`s the command. Fail-closed. |
 | `.devcontainer/devcontainer.json` | Volume mounts, `NET_ADMIN`/`NET_RAW`, env, `postStartCommand` firewall run. |
@@ -68,7 +68,7 @@ the prerelease field instead. Override with `bin/build-image --version X.Y.Z`.
   comment; Dependabot bumps both together. Keep any new `uses:` SHA-pinned. The
   `actionlint` container in `lint-actions.yml` is pinned by image **digest**.
 - Firewall allowlist: add hostnames to the `for domain in …` loop in
-  `init-firewall.sh`. CDN-fronted hosts (Debian mirrors, `downloads.claude.ai`)
+  `init-firewall.sh`. CDN-fronted hosts (Ubuntu mirrors, `downloads.claude.ai`)
   pin the IPs resolved at start — re-run the script if their IPs rotate.
 - Telemetry endpoints stay **off** the allowlist by design — do not add them.
 

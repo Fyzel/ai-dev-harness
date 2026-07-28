@@ -28,7 +28,7 @@
 #         --certificate-oidc-issuer https://token.actions.githubusercontent.com \
 #         ghcr.io/fyzel/ai-dev-harness:dev
 #     '
-FROM node:22
+FROM ubuntu:26.04
 
 # Same firewall tooling as the devcontainer image, for a faithful check.
 RUN apt-get update && apt-get install -y --no-install-recommends \

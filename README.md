@@ -21,7 +21,7 @@ for building it, verifying the firewall, and opening AI-assisted pull requests.
 Claude Code runs as the non-root `node` user with:
 
 - **Default-deny egress firewall** (`init-firewall.sh`) — only an allowlist of
-  required hosts (GitHub, npm, Anthropic APIs, VS Code, Debian mirrors, the
+  required hosts (GitHub, npm, Anthropic APIs, VS Code, Ubuntu mirrors, the
   Claude Code updater) is reachable; everything else is rejected. IPv6 is locked
   down. Telemetry endpoints are deliberately excluded.
 - **Telemetry off at the source** — `DISABLE_*` env vars enforced at highest
