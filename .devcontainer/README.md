@@ -183,6 +183,9 @@ Notes:
 - **Breaking change:** the base image moved from `node:22` (Debian, via
   `buildpack-deps`) to `ubuntu:26.04`, which no longer implicitly ships a build
   toolchain. `npm install`/`npm ci` on a package with a native addon (node-gyp) will
-  fail with `gyp ERR! find Python` until you `sudo apt-get install -y build-essential
-  python3` inside the running container — the firewall allows this, since
+  fail with `gyp ERR! find Python` until you install one — `node`'s sudoers rule only
+  covers `init-firewall.sh`, not general commands, so `sudo apt-get install` won't
+  work from inside the container. Instead, from the host: `docker exec --user root
+  <container> apt-get install -y build-essential python3` (or `podman exec --user
+  root ...`). The firewall allows this either way, since
   `archive.ubuntu.com`/`security.ubuntu.com`/`ports.ubuntu.com` are allowlisted.
