@@ -99,6 +99,25 @@ RUN ARCH=$(dpkg --print-architecture) && \
   dpkg -i "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb" && \
   rm "git-delta_${GIT_DELTA_VERSION}_${ARCH}.deb"
 
+# Install trivy from the official Aquasecurity apt repo (non-snap — snapd
+# doesn't run in this container's non-root, minimal-capability setup — see
+# issue #49). This adds a new apt trust root (unlike Node/git-delta's
+# checksum-pinned downloads) because that's the officially documented
+# install path: https://trivy.dev/docs/latest/getting-started/installation/
+# Pinned to an exact version via apt, matching NODE_VERSION/GIT_DELTA_VERSION.
+# Vulnerability/Java DB pulls happen at container *runtime* against GHCR, not
+# at build time — see the ghcr.io / pkg-containers.githubusercontent.com
+# entries added to init-firewall.sh's allowlist for that.
+ARG TRIVY_VERSION=0.72.0
+RUN wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+    | gpg --dearmor | tee /usr/share/keyrings/trivy.gpg > /dev/null && \
+  echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
+    > /etc/apt/sources.list.d/trivy.list && \
+  apt-get update && \
+  apt-get install -y --no-install-recommends "trivy=${TRIVY_VERSION}" && \
+  apt-get clean && rm -rf /var/lib/apt/lists/* && \
+  trivy --version
+
 # Set up non-root user
 USER node
 
