@@ -173,6 +173,27 @@ Notes:
 - Removing a domain (e.g. a VS Code host you don't use) tightens egress further —
   just delete its line.
 
+## trivy vulnerability scanner
+
+`trivy` ships in the image, apt-pinned to `TRIVY_VERSION` in the `Dockerfile`.
+
+By default, `trivy` tries `mirror.gcr.io/aquasec` first for its vulnerability
+DB and only falls back to `ghcr.io/aquasecurity` on an HTTP 429/5xx response —
+not on a connection-level reject. `mirror.gcr.io` is deliberately **not** on
+this firewall's allowlist (it's broad, unpinnable Google IP space), so a plain
+`trivy image ...` / `trivy fs ...` invocation hits a blocked host first and
+fails. Point it at GHCR explicitly instead:
+
+```bash
+trivy image --db-repository ghcr.io/aquasecurity/trivy-db \
+  --java-db-repository ghcr.io/aquasecurity/trivy-java-db \
+  <image>
+```
+
+`ghcr.io` and `pkg-containers.githubusercontent.com` are allowlisted in
+`init-firewall.sh` for exactly this reason — see the [Egress firewall](#egress-firewall)
+section above.
+
 ## Requirements & caveats
 
 - Needs `--cap-add=NET_ADMIN --cap-add=NET_RAW` (already in `runArgs`) so the script
@@ -190,8 +211,13 @@ Notes:
   <container> apt-get install -y build-essential python3` (or `podman exec --user
   root ...`). The firewall allows this either way, since
   `archive.ubuntu.com`/`security.ubuntu.com`/`ports.ubuntu.com` are allowlisted.
-  `python3.14`/`python3.14-venv` ship in the image by default (issue #49), but only
-  as `python3.14` — node-gyp's bare `python3` lookup still fails until you run
-  `docker exec --user root <container> update-alternatives --install /usr/bin/python3
-  python3 /usr/bin/python3.14 1`, or set `PYTHON=/usr/bin/python3.14` in the
-  environment before `npm install`.
+  `python3.14`/`python3.14-venv` also ship in the image by default (issue #49). The
+  `python3` metapackage installed by the `apt-get install` command above already
+  creates a working `/usr/bin/python3` pointing at `python3.14` (since 3.14 is
+  already present), so node-gyp's bare `python3` lookup is satisfied by that
+  command alone — no extra step needed. If you'd rather not install the full
+  `build-essential`/`python3` metapackage, `docker exec --user root <container>
+  update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.14 1`
+  points `/usr/bin/python3` at the `python3.14` already in the image; setting
+  `PYTHON=/usr/bin/python3.14` in the environment before `npm install` works too
+  and needs no root exec at all.
