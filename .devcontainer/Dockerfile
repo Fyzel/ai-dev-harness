@@ -116,6 +116,7 @@ RUN wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
   apt-get update && \
   apt-get install -y --no-install-recommends "trivy=${TRIVY_VERSION}" && \
   apt-get clean && rm -rf /var/lib/apt/lists/* && \
+  rm /etc/apt/sources.list.d/trivy.list /usr/share/keyrings/trivy.gpg && \
   trivy --version
 
 # Set up non-root user
