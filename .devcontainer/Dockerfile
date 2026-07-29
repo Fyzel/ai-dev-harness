@@ -25,6 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   dnsutils \
   aggregate \
   jq \
+  python3.14 \
+  python3.14-venv \
   vim \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 

@@ -189,3 +189,8 @@ Notes:
   <container> apt-get install -y build-essential python3` (or `podman exec --user
   root ...`). The firewall allows this either way, since
   `archive.ubuntu.com`/`security.ubuntu.com`/`ports.ubuntu.com` are allowlisted.
+  `python3.14`/`python3.14-venv` ship in the image by default (issue #49), but only
+  as `python3.14` — node-gyp's bare `python3` lookup still fails until you run
+  `docker exec --user root <container> update-alternatives --install /usr/bin/python3
+  python3 /usr/bin/python3.14 1`, or set `PYTHON=/usr/bin/python3.14` in the
+  environment before `npm install`.
