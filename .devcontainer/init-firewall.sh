@@ -128,8 +128,8 @@ echo "Processing GitHub IPs..."
 # isn't a bare IPv4 CIDR BEFORE aggregating — otherwise the validation below
 # rejects the v6 entries and exits, blocking devcontainer startup.
 #
-# .packages is GHCR's published, stable IP ranges (currently 25 /32s) —
-# pulling ghcr.io in here means it's pinned from this well-known document
+# .packages is GHCR's published, stable IP ranges — pulling ghcr.io in here
+# means it's pinned from this well-known document
 # instead of a one-time DNS resolution (see the ghcr.io note below, near the
 # domain table, for why that matters).
 while read -r cidr; do
