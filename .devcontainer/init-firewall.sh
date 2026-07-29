@@ -117,7 +117,7 @@ if [ -z "$gh_ranges" ]; then
     exit 1
 fi
 
-if ! echo "$gh_ranges" | jq -e '.web and .api and .git' >/dev/null; then
+if ! echo "$gh_ranges" | jq -e '.web and .api and .git and .packages' >/dev/null; then
     echo "ERROR: GitHub API response missing required fields"
     exit 1
 fi
@@ -127,6 +127,11 @@ echo "Processing GitHub IPs..."
 # IPv4-only (ipset hash:net + default-deny IPv6 above), so drop any range that
 # isn't a bare IPv4 CIDR BEFORE aggregating — otherwise the validation below
 # rejects the v6 entries and exits, blocking devcontainer startup.
+#
+# .packages is GHCR's published, stable IP ranges — pulling ghcr.io in here
+# means it's pinned from this well-known document
+# instead of a one-time DNS resolution (see the ghcr.io note below, near the
+# domain table, for why that matters).
 while read -r cidr; do
     if [[ ! "$cidr" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$ ]]; then
         echo "ERROR: Invalid CIDR range from GitHub meta: $cidr"
@@ -134,7 +139,7 @@ while read -r cidr; do
     fi
     echo "Adding GitHub range $cidr"
     ipset add allowed-domains "$cidr" -exist
-done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$' | aggregate -q)
+done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git + .packages)[]' | grep -E '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$' | aggregate -q)
 
 # Resolve and add other allowed domains.
 #
@@ -163,14 +168,29 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | grep -E '^[0-9]{1,
 #     tuf-repo-cdn.sigstore.dev    - Sigstore TUF root of trust, for `cosign verify`
 #                                     (Fulcio/Rekor/CT keys; all content is itself
 #                                     signed and verified by the TUF client)
+#     pkg-containers.githubusercontent.com - GHCR blob storage; currently redundant
+#                                     with the .web range above (see note below),
+#                                     kept as an explicit, self-documenting entry
+#
+# NOTE on ghcr.io: it is NOT resolved in the domain loop below. GHCR
+# (ghcr.io) is geo-routed Azure infrastructure behind a single DNS name, so a
+# one-time `dig` at firewall init pins whatever IP happened to answer — a
+# later rotation silently breaks `trivy`'s vulnerability/Java DB + checks-
+# bundle pulls (ghcr.io/aquasecurity/trivy-db etc.) with no diagnostic, since
+# this script's own verification check queries the same IP it just pinned.
+# GitHub's /meta document (fetched above) publishes GHCR's actual IP ranges
+# in its `.packages` array, so ghcr.io's IPs are pinned from there instead,
+# alongside `.web`/`.api`/`.git` — see the GitHub-ranges section above.
 #
 # CDN CAVEAT: archive.ubuntu.com / security.ubuntu.com / ports.ubuntu.com are
-# geo-DNS mirror redirectors, and tuf-repo-cdn.sigstore.dev is CDN-fronted
-# (GCP) — all with A records that can rotate across many IPs. This script
+# geo-DNS mirror redirectors, and tuf-repo-cdn.sigstore.dev /
+# pkg-containers.githubusercontent.com are CDN-fronted (GCP / Azure / Fastly)
+# — all with A records that can rotate across many IPs. This script
 # resolves them ONCE at firewall init and pins only those IPs. A later
-# `apt-get` or `cosign verify` may be routed to an IP not in the set and fail;
-# re-run this script (re-resolves) to refresh. This is the trade-off for
-# allowing runtime apt/cosign while keeping default-deny egress.
+# `apt-get` or `cosign verify` may be routed to an IP not in the set and
+# fail; re-run this script (re-resolves) to refresh. This is the trade-off
+# for allowing runtime apt/cosign while keeping default-deny egress. (ghcr.io
+# does NOT have this problem — see the NOTE above.)
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
@@ -183,7 +203,8 @@ for domain in \
     "archive.ubuntu.com" \
     "security.ubuntu.com" \
     "ports.ubuntu.com" \
-    "tuf-repo-cdn.sigstore.dev"; do
+    "tuf-repo-cdn.sigstore.dev" \
+    "pkg-containers.githubusercontent.com"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
@@ -263,6 +284,16 @@ if ! curl --connect-timeout 5 --max-time 10 https://tuf-repo-cdn.sigstore.dev >/
     exit 1
 else
     echo "Firewall verification passed - able to reach https://tuf-repo-cdn.sigstore.dev as expected"
+fi
+
+# Verify GHCR reachability, so `trivy` can pull its vulnerability/Java DB and
+# checks bundle at runtime (see the ghcr.io / pkg-containers.githubusercontent.com
+# entries added to the allowlist above).
+if ! curl --connect-timeout 5 --max-time 10 https://ghcr.io/v2/ >/dev/null 2>&1; then
+    echo "ERROR: Firewall verification failed - unable to reach https://ghcr.io/v2/"
+    exit 1
+else
+    echo "Firewall verification passed - able to reach https://ghcr.io/v2/ as expected"
 fi
 
 # Verify telemetry endpoints are BLOCKED (this is the point of this variant).
