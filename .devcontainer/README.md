@@ -124,6 +124,7 @@ Allowed:
 | `marketplace.visualstudio.com`, `vscode.blob.core.windows.net`, `update.code.visualstudio.com` | VS Code server + extensions                         |
 | `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`                                | Ubuntu `apt` packages at runtime (CDN — see note)   |
 | `tuf-repo-cdn.sigstore.dev`                                                                     | Sigstore TUF root of trust, for `cosign verify` (Fulcio/Rekor/CT keys) |
+| `ghcr.io`, `pkg-containers.githubusercontent.com`                                              | GHCR — `trivy` vulnerability/Java DB + checks-bundle pulls at runtime (CDN — see note) |
 | Host gateway (`/32`), DNS to `resolv.conf` nameservers, loopback                               | Container plumbing (gateway only — no siblings, no blanket SSH) |
 
 ### Telemetry: blocked, two layers
