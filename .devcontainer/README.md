@@ -175,7 +175,10 @@ Notes:
 
 ## trivy vulnerability scanner
 
-`trivy` ships in the image, apt-pinned to `TRIVY_VERSION` in the `Dockerfile`.
+`trivy` ships in the image, installed as whatever apt resolves as latest
+from Aquasecurity's repo — not version-pinned, since that repo only
+publishes the current release and drops older versions from its index (a
+pinned version breaks the build on trivy's next release).
 
 By default, `trivy` tries `mirror.gcr.io/aquasec` first for its vulnerability
 DB and only falls back to `ghcr.io/aquasecurity` on an HTTP 429/5xx response —

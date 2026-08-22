@@ -104,7 +104,11 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # issue #49). This adds a new apt trust root (unlike Node/git-delta's
 # checksum-pinned downloads) because that's the officially documented
 # install path: https://trivy.dev/docs/latest/getting-started/installation/
-# Pinned to an exact version via apt, matching NODE_VERSION/GIT_DELTA_VERSION.
+# Unlike NODE_VERSION/GIT_DELTA_VERSION, trivy is intentionally NOT
+# version-pinned: Aquasecurity's apt repo only publishes the current latest
+# package and drops older versions from its index, so a pinned version
+# breaks the build the moment trivy releases again. Installed as whatever
+# apt resolves as latest instead.
 # Vulnerability/Java DB pulls happen at container *runtime* against GHCR, not
 # at build time — see the ghcr.io / pkg-containers.githubusercontent.com
 # entries added to init-firewall.sh's allowlist for that.
@@ -117,7 +121,6 @@ RUN ARCH=$(dpkg --print-architecture) && \
 # different key. Fingerprint captured 2026-07-28 via `gpg --show-keys
 # --with-fingerprint` against the URL below; if Aquasecurity rotates their
 # key, update TRIVY_KEY_FINGERPRINT after verifying the new key out-of-band.
-ARG TRIVY_VERSION=0.72.0
 ARG TRIVY_KEY_FINGERPRINT=825AD9036F7C850E6A6FED4935B8ACA44FD9CA9F
 RUN set -eu; \
   wget -qO /tmp/trivy-key.asc https://aquasecurity.github.io/trivy-repo/deb/public.key; \
@@ -131,7 +134,7 @@ RUN set -eu; \
   echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
     > /etc/apt/sources.list.d/trivy.list; \
   apt-get update; \
-  apt-get install -y --no-install-recommends "trivy=${TRIVY_VERSION}"; \
+  apt-get install -y --no-install-recommends trivy; \
   apt-get clean && rm -rf /var/lib/apt/lists/*; \
   rm /etc/apt/sources.list.d/trivy.list /usr/share/keyrings/trivy.gpg; \
   trivy --version
