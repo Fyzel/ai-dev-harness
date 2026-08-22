@@ -269,9 +269,17 @@ for domain in \
     "security.ubuntu.com" \
     "ports.ubuntu.com" \
     "tuf-repo-cdn.sigstore.dev" \
-    "ghcr.io" \
     "pkg-containers.githubusercontent.com"; do
 ```
+
+**Note (post-implementation):** the shipped `init-firewall.sh` does NOT add
+`ghcr.io` to this resolve-and-pin loop as drafted above. `ghcr.io` is geo-routed
+Azure infrastructure behind a single DNS name — a one-time resolve-and-pin
+would still miss most of its IP space. It's pinned instead from GitHub's
+meta API `.packages` array (same mechanism as the GitHub Actions runner
+IP ranges), which is authoritative rather than a DNS snapshot. Only
+`pkg-containers.githubusercontent.com` (GHCR blob storage, genuinely
+CDN-fronted) goes through the domain loop above.
 
 - [ ] **Step 3: Add a GHCR reachability check to the verification section**
 

@@ -33,8 +33,9 @@ Claude Code runs as the non-root `node` user with:
   before running your command (fail-closed), so egress is locked whether launched
   via the dev container or a raw `podman`/`docker run`. Requires `NET_ADMIN` +
   `NET_RAW`.
-- **Dev tooling included** — `trivy` (vulnerability scanner, apt-pinned to
-  `TRIVY_VERSION`) and `python3.14`/`python3.14-venv` ship in the image by
+- **Dev tooling included** — `trivy` (vulnerability scanner, installed as
+  latest from Aquasecurity's apt repo) and `python3.14`/`python3.14-venv`
+  ship in the image by
   default; see [`.devcontainer/README.md`](.devcontainer/README.md) for the
   `trivy` DB-source note this firewall requires and the `python3.14` caveat
   on the `ubuntu:26.04` base.

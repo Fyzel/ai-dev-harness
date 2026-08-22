@@ -175,7 +175,10 @@ Notes:
 
 ## trivy vulnerability scanner
 
-`trivy` ships in the image, apt-pinned to `TRIVY_VERSION` in the `Dockerfile`.
+`trivy` ships in the image, installed as whatever apt resolves as latest
+from Aquasecurity's repo — not version-pinned, since that repo only
+publishes the current release and drops older versions from its index (a
+pinned version breaks the build on trivy's next release).
 
 By default, `trivy` tries `mirror.gcr.io/aquasec` first for its vulnerability
 DB and only falls back to `ghcr.io/aquasecurity` on an HTTP 429/5xx response —
@@ -204,15 +207,17 @@ section above.
   with trusted repositories, and avoid mounting host secrets (`~/.ssh`, cloud creds).
 - **Breaking change:** the base image moved from `node:22` (Debian, via
   `buildpack-deps`) to `ubuntu:26.04`, which no longer implicitly ships a build
-  toolchain. `npm install`/`npm ci` on a package with a native addon (node-gyp) will
-  fail with `gyp ERR! find Python` until you install one — `node`'s sudoers rule only
-  covers `init-firewall.sh`, not general commands, so `sudo apt-get install` won't
-  work from inside the container. Instead, from the host: `docker exec --user root
-  <container> apt-get install -y build-essential python3` (or `podman exec --user
-  root ...`). The firewall allows this either way, since
+  toolchain. `python3.14`/`python3.14-venv` ship in the image by default (issue
+  #49), but only as `python3.14` — `npm install`/`npm ci` on a package with a
+  native addon (node-gyp) will still fail with `gyp ERR! find Python`, because
+  node-gyp looks up the bare `python3` command, which isn't registered.
+  `node`'s sudoers rule only covers `init-firewall.sh`, not general commands,
+  so `sudo apt-get install` won't work from inside the container. Instead,
+  from the host: `docker exec --user root <container> apt-get install -y
+  build-essential python3` (or `podman exec --user root ...`). The firewall
+  allows this either way, since
   `archive.ubuntu.com`/`security.ubuntu.com`/`ports.ubuntu.com` are allowlisted.
-  `python3.14`/`python3.14-venv` also ship in the image by default (issue #49). The
-  `python3` metapackage installed by the `apt-get install` command above already
+  The `python3` metapackage installed by the `apt-get install` command above already
   creates a working `/usr/bin/python3` pointing at `python3.14` (since 3.14 is
   already present), so node-gyp's bare `python3` lookup is satisfied by that
   command alone — no extra step needed. If you'd rather not install the full
