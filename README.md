@@ -33,6 +33,18 @@ Claude Code runs as the non-root `node` user with:
   before running your command (fail-closed), so egress is locked whether launched
   via the dev container or a raw `podman`/`docker run`. Requires `NET_ADMIN` +
   `NET_RAW`.
+- **Dev tooling included** — `trivy` (vulnerability scanner) and
+  `python3.14`/`python3.14-venv` ship in the image by default; see
+  [`.devcontainer/README.md`](.devcontainer/README.md) for the `trivy`
+  DB-source note this firewall requires and the `python3.14` caveat on the
+  `ubuntu:26.04` base.
+- **Third-party tools are version-pinned** — Dockerfile installs pin an exact
+  version via `ARG …_VERSION` (`NODE_VERSION`, `GIT_DELTA_VERSION`), no
+  floating `latest`, unless a documented exception applies. `trivy` is the
+  one exception: Aquasecurity's apt repo only publishes the current release
+  and drops older versions from its index, so pinning it would break the
+  build on trivy's next release — it's installed as whatever apt resolves as
+  latest instead.
 
 **Podman is recommended over Docker**, on Windows, Linux, and macOS alike:
 Podman is daemonless and rootless by default, so there's no long-lived

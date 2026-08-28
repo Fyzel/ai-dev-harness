@@ -27,8 +27,10 @@ There is no application source package: this repo *is* the harness. The
 | `bin/build-image` | Build + optionally push the image to GHCR (uses `docker`). |
 | `bin/verify-firewall` | Build + run the verify image; exit code = firewall pass/fail. |
 | `bin/create-pr` | Generate a PR title/body via a local Ollama model, open the PR with `gh`. |
+| `bin/rebase-dev` | Rebase `dev` onto `main` via a throwaway branch + push, so the result goes through a PR instead of a direct push to a protected branch. |
 | `.github/workflows/build-image.yml` | Build on PRs, push on `main` / `dev` / tags. `main` also gets a floating `:release` tag; `dev` gets a floating `:dev` tag instead of `:latest` (`:latest` is `main`-only). Pushed images are cosign-signed keyless (GitHub OIDC) by digest. Third-party actions SHA-pinned. |
 | `.github/workflows/lint-actions.yml` | `actionlint` (digest-pinned image) on workflow changes. |
+| `.github/workflows/codeql.yml` | CodeQL's `actions` language scan of `.github/workflows/**` only — this repo has no application source package to scan. |
 | `.github/dependabot.yml` | Weekly `github-actions` updates (bumps SHA pins + version comments). |
 | `ollama-dev.sample.json` | Sample Ollama backend list for `bin/create-pr` (copy to gitignored `ollama-dev.json`). |
 
@@ -71,6 +73,15 @@ the prerelease field instead. Override with `bin/build-image --version X.Y.Z`.
   `init-firewall.sh`. CDN-fronted hosts (Ubuntu mirrors, `downloads.claude.ai`)
   pin the IPs resolved at start — re-run the script if their IPs rotate.
 - Telemetry endpoints stay **off** the allowlist by design — do not add them.
+- Third-party tools installed in the Dockerfile are version-pinned exactly via
+  `ARG …_VERSION` (`NODE_VERSION`, `GIT_DELTA_VERSION`) — no floating `latest`,
+  unless a documented exception applies. `trivy` is the one exception:
+  Aquasecurity's apt repo publishes only the current release and drops older
+  versions from its index, so a pinned version breaks the build the moment
+  trivy releases again — it's installed as whatever apt resolves as latest
+  instead (see the comment above the `trivy` install in `Dockerfile`). Any new
+  exception needs the same kind of justification, documented at the install
+  site.
 
 ## Notes
 

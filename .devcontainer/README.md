@@ -124,6 +124,7 @@ Allowed:
 | `marketplace.visualstudio.com`, `vscode.blob.core.windows.net`, `update.code.visualstudio.com` | VS Code server + extensions                         |
 | `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`                                | Ubuntu `apt` packages at runtime (CDN — see note)   |
 | `tuf-repo-cdn.sigstore.dev`                                                                     | Sigstore TUF root of trust, for `cosign verify` (Fulcio/Rekor/CT keys) |
+| `ghcr.io`, `pkg-containers.githubusercontent.com`                                              | GHCR — `trivy` vulnerability/Java DB + checks-bundle pulls at runtime (CDN — see note) |
 | Host gateway (`/32`), DNS to `resolv.conf` nameservers, loopback                               | Container plumbing (gateway only — no siblings, no blanket SSH) |
 
 ### Telemetry: blocked, two layers
@@ -172,6 +173,30 @@ Notes:
 - Removing a domain (e.g. a VS Code host you don't use) tightens egress further —
   just delete its line.
 
+## trivy vulnerability scanner
+
+`trivy` ships in the image, installed as whatever apt resolves as latest
+from Aquasecurity's repo — not version-pinned, since that repo only
+publishes the current release and drops older versions from its index (a
+pinned version breaks the build on trivy's next release).
+
+By default, `trivy` tries `mirror.gcr.io/aquasec` first for its vulnerability
+DB and only falls back to `ghcr.io/aquasecurity` on an HTTP 429/5xx response —
+not on a connection-level reject. `mirror.gcr.io` is deliberately **not** on
+this firewall's allowlist (it's broad, unpinnable Google IP space), so a plain
+`trivy image ...` / `trivy fs ...` invocation hits a blocked host first and
+fails. Point it at GHCR explicitly instead:
+
+```bash
+trivy image --db-repository ghcr.io/aquasecurity/trivy-db \
+  --java-db-repository ghcr.io/aquasecurity/trivy-java-db \
+  <image>
+```
+
+`ghcr.io` and `pkg-containers.githubusercontent.com` are allowlisted in
+`init-firewall.sh` for exactly this reason — see the [Egress firewall](#egress-firewall)
+section above.
+
 ## Requirements & caveats
 
 - Needs `--cap-add=NET_ADMIN --cap-add=NET_RAW` (already in `runArgs`) so the script
@@ -182,10 +207,22 @@ Notes:
   with trusted repositories, and avoid mounting host secrets (`~/.ssh`, cloud creds).
 - **Breaking change:** the base image moved from `node:22` (Debian, via
   `buildpack-deps`) to `ubuntu:26.04`, which no longer implicitly ships a build
-  toolchain. `npm install`/`npm ci` on a package with a native addon (node-gyp) will
-  fail with `gyp ERR! find Python` until you install one — `node`'s sudoers rule only
-  covers `init-firewall.sh`, not general commands, so `sudo apt-get install` won't
-  work from inside the container. Instead, from the host: `docker exec --user root
-  <container> apt-get install -y build-essential python3` (or `podman exec --user
-  root ...`). The firewall allows this either way, since
+  toolchain. `python3.14`/`python3.14-venv` ship in the image by default (issue
+  #49), but only as `python3.14` — `npm install`/`npm ci` on a package with a
+  native addon (node-gyp) will still fail with `gyp ERR! find Python`, because
+  node-gyp looks up the bare `python3` command, which isn't registered.
+  `node`'s sudoers rule only covers `init-firewall.sh`, not general commands,
+  so `sudo apt-get install` won't work from inside the container. Instead,
+  from the host: `docker exec --user root <container> apt-get install -y
+  build-essential python3` (or `podman exec --user root ...`). The firewall
+  allows this either way, since
   `archive.ubuntu.com`/`security.ubuntu.com`/`ports.ubuntu.com` are allowlisted.
+  The `python3` metapackage installed by the `apt-get install` command above already
+  creates a working `/usr/bin/python3` pointing at `python3.14` (since 3.14 is
+  already present), so node-gyp's bare `python3` lookup is satisfied by that
+  command alone — no extra step needed. If you'd rather not install the full
+  `build-essential`/`python3` metapackage, `docker exec --user root <container>
+  update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.14 1`
+  points `/usr/bin/python3` at the `python3.14` already in the image; setting
+  `PYTHON=/usr/bin/python3.14` in the environment before `npm install` works too
+  and needs no root exec at all.
