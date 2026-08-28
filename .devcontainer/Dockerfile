@@ -129,7 +129,7 @@ RUN set -eu; \
     echo "ERROR: trivy signing key fingerprint mismatch: expected $TRIVY_KEY_FINGERPRINT, got $actual_fpr" >&2; \
     exit 1; \
   fi; \
-  gpg --dearmor < /tmp/trivy-key.asc | tee /usr/share/keyrings/trivy.gpg > /dev/null; \
+  gpg --dearmor --output /usr/share/keyrings/trivy.gpg /tmp/trivy-key.asc; \
   rm /tmp/trivy-key.asc; \
   echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb generic main" \
     > /etc/apt/sources.list.d/trivy.list; \
