@@ -243,3 +243,4 @@ cython_debug/
 
 # developer settings
 /ollama-dev.json
+/firewall-custom.env

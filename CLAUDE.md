@@ -18,7 +18,8 @@ There is no application source package: this repo *is* the harness. The
 | Path | Role |
 |------|------|
 | `.devcontainer/Dockerfile` | `ubuntu:26.04` base + Node 24 (pinned tarball) + dev tooling, `iptables`/`ipset`, Claude Code install, firewall + managed-settings wiring, entrypoint. |
-| `.devcontainer/init-firewall.sh` | Programs iptables/ipset: default-DROP egress, ipset allowlist, DNS only to the container's `resolv.conf` nameservers, host gateway `/32`, IPv6 lockdown. Self-verifies (telemetry blocked, GitHub reachable) and exits non-zero on failure. |
+| `.devcontainer/init-firewall.sh` | Programs iptables/ipset: default-DROP egress, ipset allowlist, DNS only to the container's `resolv.conf` nameservers, host gateway `/32`, IPv6 lockdown, optional `FIREWALL_EXTRA_RULES` manual overrides. Self-verifies (telemetry blocked, GitHub reachable) and exits non-zero on failure. |
+| `.devcontainer/firewall-extra-rules.sh` | Shared `FIREWALL_EXTRA_RULES` parser/validator, sourced by both `init-firewall.sh` (applies the rules) and `bin/validate-firewall-env` (checks them with no container) — one implementation so the two can't drift. |
 | `.devcontainer/entrypoint.sh` | Runs the firewall on every container start, then `exec`s the command. Fail-closed. |
 | `.devcontainer/devcontainer.json` | Volume mounts, `NET_ADMIN`/`NET_RAW`, env, `postStartCommand` firewall run. |
 | `.devcontainer/managed-settings.json` | Telemetry opt-out at highest settings precedence (can't be re-enabled from inside). |
@@ -27,12 +28,14 @@ There is no application source package: this repo *is* the harness. The
 | `bin/build-image` | Build + optionally push the image to GHCR (uses `docker`). |
 | `bin/verify-firewall` | Build + run the verify image; exit code = firewall pass/fail. |
 | `bin/create-pr` | Generate a PR title/body via a local Ollama model, open the PR with `gh`. |
+| `bin/validate-firewall-env` | Validate a `firewall-custom.env`'s `FIREWALL_EXTRA_RULES` on the host — no Docker/Podman/root needed. Shares `.devcontainer/firewall-extra-rules.sh` with `init-firewall.sh`. |
 | `bin/rebase-dev` | Rebase `dev` onto `main` via a throwaway branch + push, so the result goes through a PR instead of a direct push to a protected branch. |
 | `.github/workflows/build-image.yml` | Build on PRs, push on `main` / `dev` / tags. `main` also gets a floating `:release` tag; `dev` gets a floating `:dev` tag instead of `:latest` (`:latest` is `main`-only). Pushed images are cosign-signed keyless (GitHub OIDC) by digest. Third-party actions SHA-pinned. |
 | `.github/workflows/lint-actions.yml` | `actionlint` (digest-pinned image) on workflow changes. |
 | `.github/workflows/codeql.yml` | CodeQL's `actions` language scan of `.github/workflows/**` only — this repo has no application source package to scan. |
 | `.github/dependabot.yml` | Weekly `github-actions` updates (bumps SHA pins + version comments). |
 | `ollama-dev.sample.json` | Sample Ollama backend list for `bin/create-pr` (copy to gitignored `ollama-dev.json`). |
+| `firewall-custom.sample.env` | Sample `FIREWALL_EXTRA_RULES` manual egress override (copy to gitignored `firewall-custom.env`; check it with `bin/validate-firewall-env`). |
 
 ## Versioning
 
@@ -63,8 +66,11 @@ the prerelease field instead. Override with `bin/build-image --version X.Y.Z`.
 
 ## Conventions
 
-- Scripts are POSIX `sh`, except `init-firewall.sh` / `entrypoint.sh` which are
-  bash. `*.sh` is pinned to LF via `.gitattributes` — a CRLF checkout breaks the
+- Scripts are POSIX `sh`, except `init-firewall.sh` / `entrypoint.sh` /
+  `firewall-extra-rules.sh` (bash arrays + `[[ =~ ]]`), and `bin/validate-firewall-env`
+  (bash for the same reason — it sources `firewall-extra-rules.sh` and must
+  run the identical parser `init-firewall.sh` runs, not a reimplementation).
+  `*.sh` is pinned to LF via `.gitattributes` — a CRLF checkout breaks the
   Linux shebang.
 - GitHub Actions are pinned to full commit SHAs with a trailing `# vX.Y.Z`
   comment; Dependabot bumps both together. Keep any new `uses:` SHA-pinned. The

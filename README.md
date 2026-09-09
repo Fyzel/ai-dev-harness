@@ -13,8 +13,10 @@ for building it, verifying the firewall, and opening AI-assisted pull requests.
 | `bin/build-image`        | Build and optionally push the image to `ghcr.io/<owner>/ai-dev-harness`.                                                                                                                       |
 | `bin/verify-firewall`    | Build and run the firewall in a throwaway image to confirm the egress rules enforce.                                                                                                           |
 | `bin/create-pr`          | Generate a PR title/description from your commits + diff using a local **Ollama** model, then open the PR via `gh`.                                                                            |
+| `bin/validate-firewall-env` | Validate a `firewall-custom.env`'s `FIREWALL_EXTRA_RULES` on the host — no Docker/Podman/root needed.                                                                                       |
 | `.github/workflows/`     | CI: build/push the image (`build-image.yml`) and lint workflows with actionlint (`lint-actions.yml`).                                                                                          |
 | `ollama-dev.sample.json` | Sample config for `bin/create-pr`'s Ollama backends — copy to `ollama-dev.json` (gitignored).                                                                                                  |
+| `firewall-custom.sample.env` | Sample manual egress override — copy to `firewall-custom.env` (gitignored) to allow your own hosts (e.g. a LAN Ollama instance) through the firewall. See [`.devcontainer/README.md`](.devcontainer/README.md#manual-egress-overrides-firewall_extra_rules). |
 
 ## The container
 
@@ -22,8 +24,16 @@ Claude Code runs as the non-root `node` user with:
 
 - **Default-deny egress firewall** (`init-firewall.sh`) — only an allowlist of
   required hosts (GitHub, npm, Anthropic APIs, VS Code, Ubuntu mirrors, the
-  Claude Code updater) is reachable; everything else is rejected. IPv6 is locked
-  down. Telemetry endpoints are deliberately excluded.
+  Claude Code updater, PyPI, MDN, npm docs, raw GitHub content) is reachable;
+  everything else is rejected. IPv6 is locked down. Telemetry endpoints are
+  deliberately excluded.
+- **Manual egress overrides** — set `FIREWALL_EXTRA_RULES` (via `--env-file`,
+  see `firewall-custom.sample.env`) to reach hosts specific to your own setup
+  (a LAN Ollama instance, an internal registry) without editing the image.
+  Every entry requires an explicit protocol and port — no wildcards; a
+  malformed entry fails firewall init rather than being silently widened.
+  Check a file first with `bin/validate-firewall-env` (no container needed). See
+  [`.devcontainer/README.md`](.devcontainer/README.md#manual-egress-overrides-firewall_extra_rules).
 - **Telemetry off at the source** — `DISABLE_*` env vars enforced at highest
   precedence via `managed-settings.json`, so they can't be re-enabled from inside.
 - **Persistent authentication** — `~/.claude` (`CLAUDE_CONFIG_DIR`) and
