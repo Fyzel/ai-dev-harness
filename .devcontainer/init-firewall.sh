@@ -171,6 +171,13 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git + .packages)[]' | grep -
 #     pkg-containers.githubusercontent.com - GHCR blob storage; currently redundant
 #                                     with the .web range above (see note below),
 #                                     kept as an explicit, self-documenting entry
+#     pypi.org                     - Python package metadata/search lookups
+#     docs.npmjs.com               - npm documentation
+#     developer.mozilla.org        - MDN web/JS reference docs
+#     raw.githubusercontent.com    - raw file content from GitHub repos (not
+#                                     covered by the GitHub .web/.api/.git/.packages
+#                                     ranges above — it's served off Fastly, not
+#                                     GitHub's own IP space)
 #
 # NOTE on ghcr.io: it is NOT resolved in the domain loop below. GHCR
 # (ghcr.io) is geo-routed Azure infrastructure behind a single DNS name, so a
@@ -184,13 +191,15 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git + .packages)[]' | grep -
 #
 # CDN CAVEAT: archive.ubuntu.com / security.ubuntu.com / ports.ubuntu.com are
 # geo-DNS mirror redirectors, and tuf-repo-cdn.sigstore.dev /
-# pkg-containers.githubusercontent.com are CDN-fronted (GCP / Azure / Fastly)
-# — all with A records that can rotate across many IPs. This script
-# resolves them ONCE at firewall init and pins only those IPs. A later
-# `apt-get` or `cosign verify` may be routed to an IP not in the set and
-# fail; re-run this script (re-resolves) to refresh. This is the trade-off
-# for allowing runtime apt/cosign while keeping default-deny egress. (ghcr.io
-# does NOT have this problem — see the NOTE above.)
+# pkg-containers.githubusercontent.com / pypi.org / docs.npmjs.com /
+# developer.mozilla.org / raw.githubusercontent.com are CDN-fronted
+# (GCP / Azure / Fastly) — all with A records that can rotate across many
+# IPs. This script resolves them ONCE at firewall init and pins only those
+# IPs. A later `apt-get`, `cosign verify`, or doc/package lookup may be
+# routed to an IP not in the set and fail; re-run this script (re-resolves)
+# to refresh. This is the trade-off for allowing runtime apt/cosign/docs
+# lookups while keeping default-deny egress. (ghcr.io does NOT have this
+# problem — see the NOTE above.)
 for domain in \
     "registry.npmjs.org" \
     "api.anthropic.com" \
@@ -204,7 +213,11 @@ for domain in \
     "security.ubuntu.com" \
     "ports.ubuntu.com" \
     "tuf-repo-cdn.sigstore.dev" \
-    "pkg-containers.githubusercontent.com"; do
+    "pkg-containers.githubusercontent.com" \
+    "pypi.org" \
+    "docs.npmjs.com" \
+    "developer.mozilla.org" \
+    "raw.githubusercontent.com"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
@@ -243,6 +256,36 @@ fi
 echo "Host gateway detected as: $HOST_IP"
 iptables -A INPUT  -s "$HOST_IP" -j ACCEPT
 iptables -A OUTPUT -d "$HOST_IP" -j ACCEPT
+
+# Manual egress override — opt-in, not part of the image's baked-in allowlist.
+# Set FIREWALL_EXTRA_RULES (e.g. via `docker run --env-file custom.env` /
+# `podman run --env-file custom.env`, or devcontainer.json `containerEnv`) to
+# reach hosts specific to your own setup (a LAN Ollama instance, an internal
+# registry, etc.) without editing this script or the image. Keep that env
+# file OUTSIDE the repo (or gitignored) — it's host/network-specific and must
+# never be committed.
+#
+# Format: semicolon-separated "<tcp|udp> <ipv4-or-cidr> <port>" entries, e.g.
+#   FIREWALL_EXTRA_RULES="tcp 192.168.1.50 11434;udp 192.168.1.60 53"
+#
+# Every entry MUST name an explicit protocol and port — this is a manual hole
+# punched in a default-deny firewall, so there is no wildcard/whole-host form.
+# A malformed entry fails the whole firewall init rather than being silently
+# skipped or silently widened, matching this script's fail-closed posture
+# everywhere else.
+if [ -n "${FIREWALL_EXTRA_RULES:-}" ]; then
+    echo "Applying custom egress rules from FIREWALL_EXTRA_RULES..."
+    # shellcheck source=firewall-extra-rules.sh
+    source "$(dirname "${BASH_SOURCE[0]}")/firewall-extra-rules.sh"
+    if ! parsed_extra_rules="$(firewall_parse_extra_rules "$FIREWALL_EXTRA_RULES")"; then
+        exit 1
+    fi
+    while IFS=' ' read -r proto host port; do
+        [ -z "$proto" ] && continue
+        echo "Allowing $proto egress to $host:$port"
+        iptables -A OUTPUT -p "$proto" -d "$host" --dport "$port" -j ACCEPT
+    done <<< "$parsed_extra_rules"
+fi
 
 # Explicitly REJECT any remaining outbound traffic for immediate feedback.
 # (The DROP policy already denies it; REJECT just fails fast instead of hanging.)
