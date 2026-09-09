@@ -59,8 +59,8 @@ RUN case "$TARGETARCH" in \
   && echo "${COSIGN_SHA256}  /usr/local/bin/cosign" | sha256sum -c - \
   && chmod +x /usr/local/bin/cosign
 
-COPY init-firewall.sh /usr/local/bin/init-firewall.sh
-RUN chmod +x /usr/local/bin/init-firewall.sh
+COPY init-firewall.sh firewall-extra-rules.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/firewall-extra-rules.sh
 
 # Runs as root (default) — iptables/ipset require it. The script's built-in
 # verification block (example.com blocked, api.github.com reachable, telemetry

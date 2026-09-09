@@ -1,0 +1,51 @@
+#!/bin/bash
+# bin/validate-firewall-env
+#
+# Validates a firewall-custom.env file's FIREWALL_EXTRA_RULES *before* you
+# hand it to a container — no Docker/Podman, no NET_ADMIN/root needed. Uses
+# the same parser init-firewall.sh applies at container start
+# (.devcontainer/firewall-extra-rules.sh), so a pass here means init-firewall.sh
+# will accept the same rules.
+#
+# Usage: bin/validate-firewall-env [path-to-env-file]
+#   Defaults to firewall-custom.env at the repo root.
+#
+# bash (not POSIX sh, unlike the rest of bin/) because it shares
+# .devcontainer/firewall-extra-rules.sh with init-firewall.sh, which is
+# itself a bash exception for the same reason — see CLAUDE.md.
+set -euo pipefail
+
+PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || { cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd; })
+ENV_FILE="${1:-$PROJECT_ROOT/firewall-custom.env}"
+
+if [ ! -f "$ENV_FILE" ]; then
+  echo "Error: env file not found: $ENV_FILE" >&2
+  echo "Copy firewall-custom.sample.env to firewall-custom.env (or pass a path) first." >&2
+  exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$PROJECT_ROOT/.devcontainer/firewall-extra-rules.sh"
+
+# Source the candidate file in its own subshell (command substitution always
+# forks one in bash) so a syntax error or stray side effect in it can't touch
+# this process beyond that — the same trust boundary as `source
+# firewall-custom.env` before a real container run.
+rules_value="$(set -a; source "$ENV_FILE"; printf '%s' "${FIREWALL_EXTRA_RULES:-}")"
+
+if [ -z "$rules_value" ]; then
+  echo "No FIREWALL_EXTRA_RULES set in $ENV_FILE — nothing to validate. This is a valid state; it just means no manual egress overrides."
+  exit 0
+fi
+
+echo "Validating FIREWALL_EXTRA_RULES from $ENV_FILE..."
+if ! parsed="$(firewall_parse_extra_rules "$rules_value")"; then
+  echo "Invalid: $ENV_FILE" >&2
+  exit 1
+fi
+
+echo "Valid. Rules that would be applied:"
+while IFS=' ' read -r proto host port; do
+  [ -z "$proto" ] && continue
+  printf '  %-3s %-18s port %s\n' "$proto" "$host" "$port"
+done <<< "$parsed"

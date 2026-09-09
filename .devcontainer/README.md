@@ -125,6 +125,10 @@ Allowed:
 | `archive.ubuntu.com`, `security.ubuntu.com`, `ports.ubuntu.com`                                | Ubuntu `apt` packages at runtime (CDN — see note)   |
 | `tuf-repo-cdn.sigstore.dev`                                                                     | Sigstore TUF root of trust, for `cosign verify` (Fulcio/Rekor/CT keys) |
 | `ghcr.io`, `pkg-containers.githubusercontent.com`                                              | GHCR — `trivy` vulnerability/Java DB + checks-bundle pulls at runtime (CDN — see note) |
+| `pypi.org`                                                                                     | Python package metadata/search lookups (CDN — see note) |
+| `docs.npmjs.com`                                                                                | npm documentation (CDN — see note)                  |
+| `developer.mozilla.org`                                                                         | MDN web/JS reference docs (CDN — see note)          |
+| `raw.githubusercontent.com`                                                                     | Raw file content from GitHub repos — not covered by the GitHub meta ranges above, served off Fastly (CDN — see note) |
 | Host gateway (`/32`), DNS to `resolv.conf` nameservers, loopback                               | Container plumbing (gateway only — no siblings, no blanket SSH) |
 
 ### Telemetry: blocked, two layers
@@ -172,6 +176,78 @@ Notes:
   add its domain here **and** define the server at project scope in `.mcp.json`.
 - Removing a domain (e.g. a VS Code host you don't use) tightens egress further —
   just delete its line.
+
+## Manual egress overrides (`FIREWALL_EXTRA_RULES`)
+
+For hosts specific to *your* setup — a LAN Ollama instance, an internal registry —
+that don't belong baked into the image's allowlist, set `FIREWALL_EXTRA_RULES` at
+container start instead of editing `init-firewall.sh`.
+
+Copy [`firewall-custom.sample.env`](../firewall-custom.sample.env) (repo root) to
+`firewall-custom.env` and fill it in — that filename is gitignored, so real
+hosts/ports never get committed. Format: `<tcp|udp> <ipv4-or-cidr> <port>`
+entries, separated by `;` and/or newlines — whichever's more readable:
+
+```
+FIREWALL_EXTRA_RULES="tcp 192.168.1.50 11434;udp 192.168.1.60 53"
+```
+
+```
+FIREWALL_EXTRA_RULES="
+tcp 192.168.1.50 11434;
+udp 192.168.1.60 53"
+```
+
+Every entry **must** name an explicit protocol and port — there is no
+wildcard or whole-host form, so a compromised container can't ride a LAN rule
+to unrelated services (SSH, SMB, ...) on the same box. A malformed entry
+(missing protocol/port, non-`tcp`/`udp` protocol, non-IPv4 host, out-of-range
+port) **fails firewall init** rather than being silently skipped or silently
+widened — the same fail-closed posture as the rest of this script.
+
+**How you load the file changes what works.** `--env-file` parses `VAR=VALUE`
+line by line with no shell quoting support (Docker's own documented
+behavior) — a multi-line quoted value gets mangled, so it only works with
+the single-line form:
+
+```bash
+docker run --env-file firewall-custom.env ...
+podman run --env-file firewall-custom.env ...
+```
+
+For the multi-line form, `source` the file with bash instead (which parses
+the quoting correctly) and pass the resulting env var through with a bare
+`-e`:
+
+```bash
+set -a; source firewall-custom.env; set +a
+podman run --rm -it --cap-add=NET_ADMIN --cap-add=NET_RAW \
+  -v claude-code-config:/home/node/.claude \
+  -v gh-config:/home/node/.config/gh \
+  -v "$PWD:/workspace:Z" \
+  -e FIREWALL_EXTRA_RULES \
+  ghcr.io/fyzel/ai-dev-harness:latest
+```
+
+Check a `firewall-custom.env` before handing it to a container with
+`bin/validate-firewall-env [path]` (defaults to `firewall-custom.env` at the
+repo root) — it runs the exact same parser `init-firewall.sh` applies, on the
+host, with no Docker/Podman/root/`NET_ADMIN` needed:
+
+```bash
+bin/validate-firewall-env
+# Validating FIREWALL_EXTRA_RULES from firewall-custom.env...
+# Valid. Rules that would be applied:
+#   tcp 192.168.1.50       port 11434
+#   udp 192.168.1.60       port 53
+```
+
+A malformed entry prints the same `ERROR: ...` message `init-firewall.sh`
+would, and exits non-zero — catching a typo here beats catching it as a
+failed container start.
+
+This only takes effect on container start — if you edit the env file, re-run
+`sudo /usr/local/bin/init-firewall.sh` inside the container (or restart it).
 
 ## trivy vulnerability scanner
 

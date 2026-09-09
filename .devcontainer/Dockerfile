@@ -164,9 +164,13 @@ RUN mkdir -p /etc/claude-code
 COPY managed-settings.json /etc/claude-code/managed-settings.json
 RUN chmod 0644 /etc/claude-code/managed-settings.json
 
-# Copy and set up firewall script
-COPY init-firewall.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/init-firewall.sh && \
+# Copy and set up firewall script.
+# firewall-extra-rules.sh is the shared FIREWALL_EXTRA_RULES parser/validator
+# — init-firewall.sh sources it by path relative to itself, so it must land
+# in the same directory. It's also sourced host-side by bin/validate-firewall-env,
+# which is why the parsing logic lives here rather than inlined.
+COPY init-firewall.sh firewall-extra-rules.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/firewall-extra-rules.sh && \
   echo "node ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh" > /etc/sudoers.d/node-firewall && \
   chmod 0440 /etc/sudoers.d/node-firewall
 
